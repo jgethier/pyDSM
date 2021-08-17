@@ -1,0 +1,19 @@
+beta: 1
+architecture: linear
+Nc: 10
+Nchains: 100
+kappa: 
+- 0.0 
+- 0.0 
+- 0.0 
+- 0.0
+- 0.0 
+- 0.0 
+- 0.0 
+- 0.0 
+- 0.0
+CD_flag: 0
+PD_flag: 0
+EQ_calc: 1
+tau_K: 1
+sim_time: 50000

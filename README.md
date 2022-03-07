@@ -11,5 +11,5 @@ Install: numpy, math, yaml, numba <-pip
 Run the program
 >> python gpu_dsm.py num
 
-where 'num' is used for random seed generation and file name.
+and replace 'num' with any value (used for random seed generation and file name)
 ```

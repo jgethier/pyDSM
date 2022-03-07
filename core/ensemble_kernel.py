@@ -6,8 +6,8 @@ from numba import cuda,float32,int32
 @cuda.jit
 def calc_probs_shuffle(Z,QN,tau_CD,shift_probs,CD_flag,CD_create_prefact):
 
-    i = cuda.blockIdx.x*cuda.blockDim.x + cuda.threadIdx.x
-    j = cuda.blockIdx.y*cuda.blockDim.y + cuda.threadIdx.y
+    i = cuda.blockIdx.x*cuda.blockDim.x + cuda.threadIdx.x #chain index
+    j = cuda.blockIdx.y*cuda.blockDim.y + cuda.threadIdx.y #strand index
 
     if i >= QN.shape[0]:
         return

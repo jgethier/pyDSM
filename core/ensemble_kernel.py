@@ -253,9 +253,9 @@ def chain_control_kernel(Z,QN,chain_time,stress,reach_flag,next_sync_time,max_sy
             sum_stress[1] -= (3.0*QN[i,j,1]*QN[i,j,2] / QN[i,j,3])
             sum_stress[2] -= (3.0*QN[i,j,0]*QN[i,j,2] / QN[i,j,3])
 
-        stress[arr_index,0,i] = sum_stress[0]
-        stress[arr_index,1,i] = sum_stress[1]
-        stress[arr_index,2,i] = sum_stress[2]
+        stress[i,arr_index,0] = sum_stress[0]
+        stress[i,arr_index,1] = sum_stress[1]
+        stress[i,arr_index,2] = sum_stress[2]
         
         write_time[i]+=1
     

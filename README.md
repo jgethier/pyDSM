@@ -6,7 +6,8 @@ To run a simulation:
 ```
 Create and activate a python environment that runs python 3.7 or greater.
 
-Install: numpy, math, yaml, numba <-pip
+Install: numpy, math, pyyaml, numba <-pip
+Install: cudatoolkits <-conda
 
 Run the program
 >> python gpu_dsm.py num

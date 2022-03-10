@@ -210,21 +210,25 @@ class FSM_LINEAR(object):
         add_rand = np.zeros(shape=(chain.QN.shape[0]),dtype=int)
         
         #fill random number arrays (random seed number is always advanced by +1)
+        d_tau_CD_gauss_rand_SD=cuda.to_device(tau_CD_gauss_rand_SD)
+        d_tau_CD_gauss_rand_CD=cuda.to_device(tau_CD_gauss_rand_CD)
+        d_uniform_rand=cuda.to_device(uniform_rand)
+
         random_state = 1
         gpu_rand.gpu_tauCD_gauss_rand(seed=random_state, nchains=self.input_data['Nchains'], count=250, SDtoggle=True, CDflag=self.input_data['CD_flag'],
-                                      gauss_rand=tau_CD_gauss_rand_SD, pcd_table_eq=pcd_table_eq, pcd_table_cr=pcd_table_cr,
+                                      gauss_rand=d_tau_CD_gauss_rand_SD, pcd_table_eq=pcd_table_eq, pcd_table_cr=pcd_table_cr,
                                       pcd_table_tau=pcd_table_tau,refill=False)
 
         #if CD flag is 1 (constraint dynamics is on), fill random gaussian array for new strands created by CD
         if self.input_data['CD_flag'] == 1:
             random_state += 1
             gpu_rand.gpu_tauCD_gauss_rand(seed=random_state, nchains=self.input_data['Nchains'], count=250, SDtoggle=False, CDflag=self.input_data['CD_flag'],
-                                          gauss_rand=tau_CD_gauss_rand_CD, pcd_table_eq=pcd_table_eq, pcd_table_cr=pcd_table_cr,
+                                          gauss_rand=d_tau_CD_gauss_rand_CD, pcd_table_eq=pcd_table_eq, pcd_table_cr=pcd_table_cr,
                                           pcd_table_tau=pcd_table_tau,refill=False)
         
         #advance random seed number and fill uniform random array
         random_state += 1
-        gpu_rand.gpu_uniform_rand(seed=random_state, nchains=self.input_data['Nchains'], count=250, uniform_rand=uniform_rand,refill=False)
+        gpu_rand.gpu_uniform_rand(seed=random_state, nchains=self.input_data['Nchains'], count=250, uniform_rand=d_uniform_rand,refill=False)
         
         
         #initialize arrays for chain time and entanglement lifetime
@@ -254,9 +258,6 @@ class FSM_LINEAR(object):
         d_stall_flag = cuda.to_device(stall_flag)
         d_tdt = cuda.to_device(tdt)
         d_rand_used = cuda.to_device(rand_used)
-        d_uniform_rand=cuda.to_device(uniform_rand)
-        d_tau_CD_gauss_rand_SD=cuda.to_device(tau_CD_gauss_rand_SD)
-        d_tau_CD_gauss_rand_CD=cuda.to_device(tau_CD_gauss_rand_CD)
         d_tau_CD_used_SD=cuda.to_device(tau_CD_used_SD)
         d_tau_CD_used_CD=cuda.to_device(tau_CD_used_CD)
         
@@ -271,7 +272,7 @@ class FSM_LINEAR(object):
         num_time_syncs = int(math.floor(self.input_data['sim_time'] / max_sync_time) + 1)
         
         #set grid dimensions
-        dimBlock = (8,32)
+        dimBlock = (32,8)
         dimGrid_x = (self.input_data['Nchains']+dimBlock[0]-1)//dimBlock[0]
         dimGrid_y = (self.input_data['Nc']+dimBlock[1]-1)//dimBlock[1]
         dimGrid = (dimGrid_x,dimGrid_y)

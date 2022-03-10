@@ -189,7 +189,7 @@ class FSM_LINEAR(object):
         chain.Z = chain.Z.reshape(self.input_data['Nchains'])
 
         #save initial chain conformation distributions
-        self.save_distributions(os.path.join(self.output_path,'distr_Q_initial_%d.dat'%self.sim_ID),chain.QN,chain.Z)
+        self.save_distributions(os.path.join(self.output_path,'distr_Q_initial_%d.txt'%self.sim_ID),chain.QN,chain.Z)
 
         #save initial Z distribution to file
         np.savetxt(os.path.join(self.output_path,'Z_initial_%d.txt'%self.sim_ID),chain.Z,fmt='%d')
@@ -492,7 +492,7 @@ class FSM_LINEAR(object):
                 
         #save final distributions to file
         np.savetxt(os.path.join(self.output_path,'Z_final_%d.txt'%self.sim_ID),Z_final,fmt='%d')
-        self.save_distributions(os.path.join(self.output_path,'distr_Q_final_%d.dat'%self.sim_ID),QN_final,Z_final)
+        self.save_distributions(os.path.join(self.output_path,'distr_Q_final_%d.txt'%self.sim_ID),QN_final,Z_final)
         
         
         #read in stress files for stress autocorrelation function

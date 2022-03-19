@@ -539,8 +539,7 @@ class FSM_LINEAR(object):
         time_array = d_time.copy_to_host().astype(int) 
         stress_corr_final = d_stress_corr.copy_to_host()
         average_corr = np.mean(stress_corr_final[:,:,0],axis=0) #mean stress correlation
-        average_err = np.sqrt(np.sum(stress_corr_final[:,:,1]**2,axis=0))/self.input_data['Nchains'] #propagation of error from average
-        
+        average_err = np.sum(stress_corr_final[:,:,1],axis=0)/(self.input_data['Nchains']*np.sqrt(self.input_data['Nchains']))
         #make combined result array and write to file
         combined = np.hstack((time_array, average_corr, average_err))
         with open('./DSM_results/Gt_result_%d.txt'%self.sim_ID, "w") as f:

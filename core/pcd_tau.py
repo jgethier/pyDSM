@@ -37,3 +37,58 @@ class p_cd(object):
 
 		return 1.0/self.ptau_sum
 
+
+class p_cd_linear(object):
+
+	def __init__(self,Nk,beta):
+
+		self.g = 0.667
+		self.z = (Nk + beta) / (beta + 1.0)
+
+		if beta != 1.0:
+
+			self.alpha = (0.053 * np.log(beta) + 0.31) * self.z**(-0.012 * np.log(beta) - 0.024)
+			self.tau_0 = 0.285 * (beta + 2.0)**0.515
+			if Nk < 2:
+				self.tau_max = self.tau_0
+				self.tau_D = self.tau_0 
+			else: 
+				self.tau_max = 0.025 * (beta+2.0)**2.6 * self.z**2.83
+				self.tau_D = 0.036 * (beta+2.0)**3.07 * (self.z - 1)**3.02
+		
+		else:
+
+			self.alpha = 0.267096 - 0.375571 * np.exp(-0.0838237 * Nk)
+			self.tau_0 = 0.460277 + 0.298913 * np.exp(-0.0705314 * Nk)
+			if Nk < 4:
+				self.tau_max = self.tau_0
+				self.tau_D = self.tau_0
+			else:
+				self.tau_max = 0.0156137 * float(Nk)**3.18849
+				self.tau_D = 0.0740131 * float(Nk)**3.18363
+		
+
+		self.tau_alpha = self.tau_max**self.alpha - self.tau_0**self.alpha
+		self.tau_alpha_m1 = self.tau_max**(self.alpha-1.0) - self.tau_0**(self.alpha - 1.0)
+		if self.tau_alpha == 0.0:
+			self.ratio_tau_alpha = (self.alpha - 1.0)/self.alpha/self.tau_0
+		else:
+			self.ratio_tau_alpha = self.tau_alpha_m1 / self.tau_alpha 
+		
+		self.At = (1.0 - self.g)
+		self.Adt = self.At * self.alpha / (self.alpha - 1.0)
+		self.Bdt = self.Adt * self.ratio_tau_alpha
+		self.normdt = self.Bdt + self.g / self.tau_D 
+		
+	def tau_CD_f_t(self):
+		
+		p = rng.genrand_real3()
+		if p < (1.0 - self.g):
+			return (p * self.tau_alpha / self.At + self.tau_0**self.alpha) ** (1.0 / self.alpha);
+		else:
+			return self.tau_D
+		
+	def W_CD_destroy_aver(self):
+		return self.normdt 
+		
+        

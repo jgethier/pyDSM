@@ -19,7 +19,7 @@ def gpu_uniform_rand(seed, nchains, count, uniform_rand, refill=False):
 	return
 
 
-def gpu_tauCD_gauss_rand(seed, nchains, count, CDflag, SDtoggle, gauss_rand, pcd_table_eq, pcd_table_cr, pcd_table_tau, refill=False):
+def gpu_tauCD_gauss_rand(seed, discrete, nchains, count, CDflag, SDtoggle, gauss_rand, pcd_array, pcd_table_eq, pcd_table_cr, pcd_table_tau, refill=False):
 
 	threadsperblock = 256
 	blockspergrid = (nchains + threadsperblock - 1) // threadsperblock
@@ -27,10 +27,10 @@ def gpu_tauCD_gauss_rand(seed, nchains, count, CDflag, SDtoggle, gauss_rand, pcd
 	rng_states = create_xoroshiro128p_states(threadsperblock * blockspergrid, seed=seed)
 	
 	if refill:
-		refill_gauss_rand_tauCD[blockspergrid,threadsperblock](rng_states, nchains, count, SDtoggle, CDflag, gauss_rand, pcd_table_eq, pcd_table_cr, pcd_table_tau)
+		refill_gauss_rand_tauCD[blockspergrid,threadsperblock](rng_states, discrete, nchains, count, SDtoggle, CDflag, gauss_rand, pcd_array, pcd_table_eq, pcd_table_cr, pcd_table_tau)
 
 	else:
-		fill_gauss_rand_tauCD[blockspergrid,threadsperblock](rng_states, nchains, count, SDtoggle, CDflag, gauss_rand, pcd_table_eq, pcd_table_cr, pcd_table_tau)
+		fill_gauss_rand_tauCD[blockspergrid,threadsperblock](rng_states, discrete, nchains, count, SDtoggle, CDflag, gauss_rand, pcd_array, pcd_table_eq, pcd_table_cr, pcd_table_tau)
 
 	return
 
@@ -73,7 +73,7 @@ def refill_uniform_rand(rng_states, nchains, count, uniform_rand):
 
 
 @cuda.jit
-def fill_gauss_rand_tauCD(rng_states, nchains, count, SDtoggle, CD_flag, gauss_rand, pcd_table_eq, pcd_table_cr, pcd_table_tau):
+def fill_gauss_rand_tauCD(rng_states, discrete, nchains, count, SDtoggle, CD_flag, gauss_rand, pcd_array, pcd_table_eq, pcd_table_cr, pcd_table_tau):
 
 	i = cuda.grid(1)
 
@@ -85,12 +85,19 @@ def fill_gauss_rand_tauCD(rng_states, nchains, count, SDtoggle, CD_flag, gauss_r
 		while x <= 0.0:
 			x = xoroshiro128p_uniform_float32(rng_states, i)
 
-		if CD_flag == 1:
+		if CD_flag == 1 and discrete==True:
 
 			if SDtoggle==True:
 				gauss_rand[i,j,3] = tau_CD_eq(x, pcd_table_eq, pcd_table_tau)
 			else:
 				gauss_rand[i,j,3] = tau_CD_cr(x, pcd_table_cr, pcd_table_tau)
+		
+		elif CD_flag == 1 and discrete == False:
+
+			if SDtoggle==True:
+				gauss_rand[i,j,3] = tau_CD_f_t(x,pcd_array[6],pcd_array[8],pcd_array[7],pcd_array[5],pcd_array[0])
+			else:
+				gauss_rand[i,j,3] = tau_CD_f_d_t(x,pcd_array[9],pcd_array[10],pcd_array[11],pcd_array[12],pcd_array[5])
 
 		else:
 			gauss_rand[i,j,3] = 0.0
@@ -104,7 +111,7 @@ def fill_gauss_rand_tauCD(rng_states, nchains, count, SDtoggle, CD_flag, gauss_r
 	return
 
 @cuda.jit
-def refill_gauss_rand_tauCD(rng_states, nchains, count, SDtoggle, CD_flag, gauss_rand, pcd_table_eq, pcd_table_cr, pcd_table_tau):
+def refill_gauss_rand_tauCD(rng_states, discrete, nchains, count, SDtoggle, CD_flag, gauss_rand, pcd_array, pcd_table_eq, pcd_table_cr, pcd_table_tau):
 
 	i = cuda.grid(1)
 
@@ -116,12 +123,19 @@ def refill_gauss_rand_tauCD(rng_states, nchains, count, SDtoggle, CD_flag, gauss
 		while x <= 0.0:
 			x = xoroshiro128p_uniform_float32(rng_states, i)
 		
-		if CD_flag == 1:
+		if CD_flag == 1 and discrete == True:
 
 			if SDtoggle==True:
 				gauss_rand[i,j,3] = tau_CD_eq(x, pcd_table_eq, pcd_table_tau)
 			else:
 				gauss_rand[i,j,3] = tau_CD_cr(x, pcd_table_cr, pcd_table_tau)
+		
+		elif CD_flag == 1 and discrete == False:
+
+			if SDtoggle==True:
+				gauss_rand[i,j,3] = tau_CD_f_t(x,pcd_array[6],pcd_array[8],pcd_array[7],pcd_array[5],pcd_array[0])
+			else:
+				gauss_rand[i,j,3] = tau_CD_f_d_t(x,pcd_array[9],pcd_array[10],pcd_array[11],pcd_array[12],pcd_array[5])
 
 		else:
 			gauss_rand[i,j,3] = 0.0
@@ -155,5 +169,20 @@ def tau_CD_eq(p, pcd_table_eq, pcd_table_tau):
 		if pcd_table_eq[i] >= p:
 
 			return 1.0/pcd_table_tau[i]
+        
 
+@cuda.jit(device=True)
+def tau_CD_f_d_t(prob,d_Adt,d_Bdt,d_Cdt,d_Ddt,d_tau_D_inverse):
+	
+	if prob < d_Bdt:
+		return (prob*d_Adt + d_Ddt)**d_Cdt 
+	else:
+		return d_tau_D_inverse 
 
+@cuda.jit(device=True)
+def tau_CD_f_t(prob,d_At,d_Ct,d_Dt,d_tau_D_inverse,d_g):
+	
+	if prob < 1.0 - d_g:
+		return (prob * d_At + d_Dt)**d_Ct 
+	else:
+		return d_tau_D_inverse 

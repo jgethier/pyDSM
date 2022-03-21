@@ -6,7 +6,7 @@ from numba import cuda
 import yaml
 import math
 from core.chain import ensemble_chains
-from core.pcd_tau import p_cd
+from core.pcd_tau import p_cd, p_cd_linear
 import core.random_gen as rng
 import core.ensemble_kernel as ensemble_kernel
 import core.gpu_random as gpu_rand 
@@ -132,20 +132,54 @@ class FSM_LINEAR(object):
 
             
     def main(self):
-
-        #if multi-mode maxwell fit param file exists, read and set modes
-        if os.path.isfile("pcd_MMM.txt"):
-            with open("pcd_MMM.txt",'r') as pcd_file:
-                nmodes = int(pcd_file.readline())
-
-                lines = pcd_file.readlines()
-                tauArr = [float(line.split()[0]) for line in lines]
-                gArr = [float(line.split()[1]) for line in lines]
            
             
 
-        #if CD_flag is set (constraint dynamics is on), set probability of CD parameters
-        if self.input_data['CD_flag']==1:
+        #if CD_flag is set (constraint dynamics is on), set probability of CD parameters with analytic expression
+        if self.input_data['CD_flag']==1 and self.input_data['architecture']=='linear':
+            
+            #initialize constants for constraint dynamics probability calculation
+            pcd = p_cd_linear(self.input_data['Nc'],self.input_data['beta'])
+            d_CD_create_prefact = cuda.to_device([pcd.W_CD_destroy_aver()/self.input_data['beta']])
+            
+            #array of constants used for tau_CD probability calculation
+            pcd_array = np.array([pcd.g, #0
+                        pcd.alpha, #1
+                        pcd.tau_0, #2
+                        pcd.tau_max, #3
+                        pcd.tau_D, #4
+                        1.0/pcd.tau_D, #5, inverse tau_D 
+                        1.0*pcd.tau_alpha/pcd.At, #6, d_At
+                        pcd.tau_0**pcd.alpha, #7, d_Dt
+                        -1.0/pcd.alpha, #8, d_Ct
+                        pcd.normdt*pcd.tau_alpha/pcd.Adt, #9, d_Adt
+                        pcd.Bdt/pcd.normdt, #10, d_Bdt 
+                        -1.0/(pcd.alpha - 1.0), #11, d_Cdt
+                        pcd.tau_0**(pcd.alpha - 1.0) #12, d_Ddt
+                        ])
+            
+            discrete = False #set discrete variable to False to implement analytic expression for p(tau_CD) probability
+            
+            #set discrete modes to 0 (this may be better handled since it's waste of memory space)
+            pcd_table_tau = np.zeros(1)
+            pcd_table_cr = np.zeros(1)
+            pcd_table_eq = np.zeros(1)
+
+        #if not linear chains, use discrete fit for tau_CD
+        elif self.input_data['CD_flag']==1 and self.input_data['architecture']!='linear':
+
+            #check to see if multi-mode maxwell fit param file exists, read and set modes
+            if os.path.isfile("pcd_MMM.txt"):
+                with open("pcd_MMM.txt",'r') as pcd_file:
+                    nmodes = int(pcd_file.readline())
+
+                    lines = pcd_file.readlines()
+                    tauArr = [float(line.split()[0]) for line in lines]
+                    gArr = [float(line.split()[1]) for line in lines]
+            else:
+                sys.exit("No file named pcd_MMM.txt found. Fit f_d(t) statistics to multi-mode Maxwell for pcd statistics.")
+            
+            #initialize modes and time constants
             pcd = p_cd(tauArr, gArr, nmodes)
             d_CD_create_prefact = cuda.to_device([pcd.W_CD_destroy_aver()/self.input_data['beta']])
 
@@ -162,13 +196,19 @@ class FSM_LINEAR(object):
                 pcd_table_eq[i] = sum_eq
 
                 pcd_table_tau[i] = pcd.tau[i]
+            
+            pcd_array = np.zeros(1)
+            discrete = True
+
         
         #else, set probability factors to 0
         else:
             pcd=None
+            discrete = False 
             pcd_table_tau = np.zeros(1)
             pcd_table_cr = np.zeros(1)
             pcd_table_eq = np.zeros(1)
+            pcd_array = np.zeros(1)
             d_CD_create_prefact = cuda.to_device([0.0])
 
             
@@ -215,16 +255,16 @@ class FSM_LINEAR(object):
         d_uniform_rand=cuda.to_device(uniform_rand)
 
         random_state = 1
-        gpu_rand.gpu_tauCD_gauss_rand(seed=random_state, nchains=self.input_data['Nchains'], count=250, SDtoggle=True, CDflag=self.input_data['CD_flag'],
-                                      gauss_rand=d_tau_CD_gauss_rand_SD, pcd_table_eq=pcd_table_eq, pcd_table_cr=pcd_table_cr,
-                                      pcd_table_tau=pcd_table_tau,refill=False)
+        gpu_rand.gpu_tauCD_gauss_rand(seed=random_state, discrete=discrete, nchains=self.input_data['Nchains'], count=250, SDtoggle=True,
+                                      CDflag=self.input_data['CD_flag'],gauss_rand=d_tau_CD_gauss_rand_SD, pcd_array = pcd_array, pcd_table_eq=pcd_table_eq, 
+                                      pcd_table_cr=pcd_table_cr,pcd_table_tau=pcd_table_tau,refill=False)
 
         #if CD flag is 1 (constraint dynamics is on), fill random gaussian array for new strands created by CD
         if self.input_data['CD_flag'] == 1:
             random_state += 1
-            gpu_rand.gpu_tauCD_gauss_rand(seed=random_state, nchains=self.input_data['Nchains'], count=250, SDtoggle=False, CDflag=self.input_data['CD_flag'],
-                                          gauss_rand=d_tau_CD_gauss_rand_CD, pcd_table_eq=pcd_table_eq, pcd_table_cr=pcd_table_cr,
-                                          pcd_table_tau=pcd_table_tau,refill=False)
+            gpu_rand.gpu_tauCD_gauss_rand(seed=random_state, discrete=discrete, nchains=self.input_data['Nchains'], count=250, SDtoggle=False, 
+                                          CDflag=self.input_data['CD_flag'],gauss_rand=d_tau_CD_gauss_rand_CD, pcd_array = pcd_array, pcd_table_eq=pcd_table_eq, 
+                                          pcd_table_cr=pcd_table_cr,pcd_table_tau=pcd_table_tau,refill=False)
         
         #advance random seed number and fill uniform random array
         random_state += 1
@@ -444,15 +484,15 @@ class FSM_LINEAR(object):
                 if step_count % 250 == 0:
                     
                     random_state += 1
-                    gpu_rand.gpu_tauCD_gauss_rand(seed=random_state, nchains=self.input_data['Nchains'], count=d_tau_CD_used_SD, SDtoggle=True,
-                                                  CDflag=self.input_data['CD_flag'], gauss_rand=d_tau_CD_gauss_rand_SD, pcd_table_eq=pcd_table_eq, 
-                                                  pcd_table_cr=pcd_table_cr, pcd_table_tau=pcd_table_tau, refill=True)
+                    gpu_rand.gpu_tauCD_gauss_rand(seed=random_state, discrete=discrete, nchains=self.input_data['Nchains'], count=d_tau_CD_used_SD,
+                                                  SDtoggle=True,CDflag=self.input_data['CD_flag'], gauss_rand=d_tau_CD_gauss_rand_SD, pcd_array=pcd_array,
+                                                  pcd_table_eq=pcd_table_eq,pcd_table_cr=pcd_table_cr, pcd_table_tau=pcd_table_tau, refill=True)
 
                     if self.input_data['CD_flag'] == 1:
                         random_state += 1
-                        gpu_rand.gpu_tauCD_gauss_rand(seed=random_state, nchains=self.input_data['Nchains'], count=d_tau_CD_used_CD, SDtoggle=False,
-                                                      CDflag=self.input_data['CD_flag'], gauss_rand=d_tau_CD_gauss_rand_CD, pcd_table_eq=pcd_table_eq, 
-                                                      pcd_table_cr=pcd_table_cr, pcd_table_tau=pcd_table_tau, refill=True)
+                        gpu_rand.gpu_tauCD_gauss_rand(seed=random_state, discrete=discrete, nchains=self.input_data['Nchains'], count=d_tau_CD_used_CD, 
+                                                      SDtoggle=False,CDflag=self.input_data['CD_flag'], gauss_rand=d_tau_CD_gauss_rand_CD, pcd_array=pcd_array,
+                                                      pcd_table_eq=pcd_table_eq,pcd_table_cr=pcd_table_cr, pcd_table_tau=pcd_table_tau, refill=True)
                     random_state += 1
                     gpu_rand.gpu_uniform_rand(seed=random_state, nchains=self.input_data['Nchains'], count=d_rand_used, uniform_rand=d_uniform_rand,refill=True)
                     

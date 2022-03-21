@@ -9,24 +9,29 @@ def calc_probs_shuffle(Z,QN,tau_CD,shift_probs,CD_flag,CD_create_prefact):
     i = cuda.blockIdx.x*cuda.blockDim.x + cuda.threadIdx.x #chain index
     j = cuda.blockIdx.y*cuda.blockDim.y + cuda.threadIdx.y #strand index
 
+    #if thread number is larger than ensemble size
     if i >= QN.shape[0]:
         return
 
     tz = int(Z[i])
 
+    #if thread number is larger than number of strands
     if j >= tz:
         return
     
+    #reset shift probabilities
     shift_probs[i,j,0] = shift_probs[i,j,1] = shift_probs[i,j,2] = shift_probs[i,j,3] = 0
 
     tcd = tau_CD[i,j]
-    
     QN_i = QN[i, j, :]
+
+    #calculate shift probabilities
     if j<tz-1:
         QN_ip1 = QN[i, j+1, :]
         Q_i = QN_i[0]*QN_i[0] + QN_i[1]*QN_i[1] + QN_i[2]*QN_i[2]
         Q_ip1 = QN_ip1[0]*QN_ip1[0] + QN_ip1[1]*QN_ip1[1] + QN_ip1[2]*QN_ip1[2]
 
+        #probability to shuffle Kuhn step from strand j+1 to j
         if int(QN_ip1[3]) > 1.0:
                 sig1 = 0.75 / (QN_i[3]*(QN_i[3]+1))
                 sig2 = 0.75 / (QN_ip1[3]*(QN_ip1[3]-1))
@@ -52,7 +57,8 @@ def calc_probs_shuffle(Z,QN,tau_CD,shift_probs,CD_flag,CD_create_prefact):
         else:
             pass
 
-
+        
+        #probability to shuffle Kuhn step from j to j+1
         if QN_i[3] > 1.0:
                 sig1 = 0.75 / (QN_i[3]*(QN_i[3]-1))
                 sig2 = 0.75 / (QN_ip1[3]*(QN_ip1[3]+1))
@@ -78,7 +84,7 @@ def calc_probs_shuffle(Z,QN,tau_CD,shift_probs,CD_flag,CD_create_prefact):
         else:
             pass
 
-
+        #calculate probability to create/destroy entanglement by CD
         if CD_flag==1:
                 shift_probs[i, j, 2] = int(tcd*1e6)
                 shift_probs[i, j, 3] = int(CD_create_prefact[0]*1e6*(QN_i[3]-1.0))
@@ -149,6 +155,7 @@ def scan_kernel(Z,shift_probs,sum_W_sorted,uniform_rand,rand_used,found_index,fo
     
     tz = int(Z[i])
 
+    #sum all probabilities in the chain
     sum1 = 0
     for j in range(0,tz+1):
         temp = shift_probs[i,j,:]
@@ -157,13 +164,17 @@ def scan_kernel(Z,shift_probs,sum_W_sorted,uniform_rand,rand_used,found_index,fo
             sum1 += (temp[0] + temp[1] + temp[2] + temp[3])
         else:
             sum1 += (temp[0] + temp[1])
-                
+
+    #set sum of probabilities to sum_W_sorted array for each chain    
     sum_W_sorted[i] = sum1
+
+    #choose a random jump process by selecting a random jump probability (random uniform number * sum of all probabilities)
     x = math.ceil(sum1*uniform_rand[i,int(rand_used[i])])
     
     xFound = yFound = zFound = wFound = False
     sum2 = 0
     
+    #this loop does the sum above again, but finds where the jump process happens from x chosen above
     for j in range(0,tz+1):
         
         temp = shift_probs[i,j,:]

@@ -93,15 +93,15 @@ class FSM_LINEAR(object):
     
     def calc_avg_stress(self,num_sync,time,stress_array):
         '''
-        Calculate the average stress of all chains in ensemble
+        Output the stress of all chains in ensemble
         Inputs: num_sync - sync number for simulation
                 time - simulation time
-                stress_array - array of stress values to average
-        Outputs: average stress over time in stress.txt file
+                stress_array - array of stress values to write
+        Outputs: stress over time for each chain in stress.txt file
         '''
         
-        #avg_stress = np.mean(stress_array,axis=2)
-        #stdev_stress = np.std(stress_array,axis=2)
+        #avg_stress = np.mean(stress_array,axis=2) #no longer used for averaging
+        #stdev_stress = np.std(stress_array,axis=2) #no longer used for averaging
         
         #get output stress file ready
         self.stress_output = os.path.join(self.output_path,'stress_%d.txt'%self.sim_ID)
@@ -539,7 +539,8 @@ class FSM_LINEAR(object):
         time_array = d_time.copy_to_host().astype(int) 
         stress_corr_final = d_stress_corr.copy_to_host()
         average_corr = np.mean(stress_corr_final[:,:,0],axis=0) #mean stress correlation
-        average_err = np.sum(stress_corr_final[:,:,1],axis=0)/(self.input_data['Nchains']*np.sqrt(self.input_data['Nchains']))
+        average_err = np.sum(stress_corr_final[:,:,1],axis=0)/(self.input_data['Nchains']*np.sqrt(self.input_data['Nchains'])) #error propagation
+
         #make combined result array and write to file
         combined = np.hstack((time_array, average_corr, average_err))
         with open('./DSM_results/Gt_result_%d.txt'%self.sim_ID, "w") as f:

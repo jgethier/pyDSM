@@ -312,7 +312,7 @@ class FSM_LINEAR(object):
         num_time_syncs = int(math.floor(self.input_data['sim_time'] / max_sync_time) + 1)
         
         #set grid dimensions
-        dimBlock = (32,8)
+        dimBlock = (32,32)
         dimGrid_x = (self.input_data['Nchains']+dimBlock[0]-1)//dimBlock[0]
         dimGrid_y = (self.input_data['Nc']+dimBlock[1]-1)//dimBlock[1]
         dimGrid = (dimGrid_x,dimGrid_y)

@@ -238,7 +238,7 @@ class FSM_LINEAR(object):
         found_index = np.zeros(shape=(chain.QN.shape[0]))
         found_shift = np.zeros(shape=(chain.QN.shape[0]))
         sum_W_sorted = np.zeros(shape=(chain.QN.shape[0]),dtype=int)
-        shift_probs = np.zeros(shape=(chain.QN.shape[0],chain.QN.shape[1]+1,chain.QN.shape[0]),dtype=int)
+        shift_probs = np.zeros(shape=(chain.QN.shape[0],chain.QN.shape[1]+1,chain.QN.shape[2]),dtype=int)
         
         #intitialize arrays for random numbers used
         rand_used = np.zeros(shape=chain.QN.shape[0],dtype=int)

@@ -32,21 +32,17 @@ def calc_probs_shuffle(Z,QN,tau_CD,shift_probs,CD_flag,CD_create_prefact):
                 sig2 = 0.75 / (QN_ip1[3]*(QN_ip1[3]-1))
                 if Q_i==0.0:
                         prefactor1 = 1.0
-                else:
-                        prefactor1 = QN_i[3] / (QN_i[3] + 1)
-                if Q_ip1 == 0.0:
-                        prefactor2 = 1.0
-                else:
-                        prefactor2 = QN_ip1[3] / (QN_ip1[3] - 1)
-                if Q_i==0.0:
                         f1 = 2.0*(QN_i[3]+0.5)
                 else:
+                        prefactor1 = QN_i[3] / (QN_i[3] + 1)
                         f1 = QN_i[3]
                 if Q_ip1 == 0.0:
+                        prefactor2 = 1.0
                         f2 = 2.0*(QN_ip1[3]-0.5)
                 else:
+                        prefactor2 = QN_ip1[3] / (QN_ip1[3] - 1)
                         f2 = QN_ip1[3]
-
+                        
                 friction = 2.0 / (f1 + f2)
                 shift_probs[i, j, 0] = int(1e6*friction*math.pow(prefactor1*prefactor2,0.75)*math.exp(Q_i*sig1-Q_ip1*sig2))
 
@@ -56,20 +52,15 @@ def calc_probs_shuffle(Z,QN,tau_CD,shift_probs,CD_flag,CD_create_prefact):
                 
                 if Q_i == 0.0:
                         prefactor1 = 1.0
-                else:
-                        prefactor1 = QN_i[3] / (QN_i[3] - 1)
-                if Q_ip1 == 0.0:
-                        prefactor2 = 1.0
-                else:
-                        prefactor2 = QN_ip1[3] / (QN_ip1[3] + 1)
-                
-                if Q_i==0.0:
                         f1 = 2.0*(QN_i[3]-0.5)
                 else:
+                        prefactor1 = QN_i[3] / (QN_i[3] - 1)
                         f1 = QN_i[3]
-                if Q_ip1==0.0:
+                if Q_ip1 == 0.0:
+                        prefactor2 = 1.0
                         f2 = 2.0*(QN_ip1[3]+0.5)
                 else:
+                        prefactor2 = QN_ip1[3] / (QN_ip1[3] + 1)
                         f2 = QN_ip1[3]
 
                 friction = 2.0 / (f1 + f2)
@@ -178,8 +169,7 @@ def scan_kernel(Z,shift_probs,sum_W_sorted,uniform_rand,rand_used,found_index,fo
                 
             if xFound or yFound or zFound or wFound:
                 break
-                
-
+    
     ii=j
     
     
@@ -204,7 +194,7 @@ def scan_kernel(Z,shift_probs,sum_W_sorted,uniform_rand,rand_used,found_index,fo
             found_shift[i] = 2 #destroy by CD
         elif wFound:
             found_shift[i] = 4 #create by CD
-            add_rand[i] = (x - (sum2 - temp[3])) / temp[3]
+            add_rand[i] = float(x - (sum2 - temp[3])) / float(temp[3])
     else:
         print("Error: no jump found for chain",i)
 
@@ -424,12 +414,12 @@ def apply_create_SD(chainIdx, jumpIdx, createIdx, jumpType, QN, QN_create_SD, Z,
     
     #set tau_CD and new N for new strand
     tCD = temp[3]
-    temp[3] = QN1[3] - 1.0
+    new_N = QN1[3] - 1.0
 
     if tz==1:
         sigma = 0.0
     else:
-        sigma = math.sqrt(temp[3] / 3.0)
+        sigma = math.sqrt(new_N / 3.0)
 
     #calculate Q for new strand
     temp[0]*=sigma
@@ -448,8 +438,9 @@ def apply_create_SD(chainIdx, jumpIdx, createIdx, jumpType, QN, QN_create_SD, Z,
         tau_CD[chainIdx,jumpIdx+1] = 0.0
 
         #set new strand at tz-1 
-        for m in range(0,4):
+        for m in range(0,3):
             QN[chainIdx,jumpIdx,m] = temp[m]
+        QN[chainIdx,jumpIdx,3] = new_N
         
         tau_CD[chainIdx,jumpIdx] = tCD
         t_cr[chainIdx,jumpIdx] = chain_time[chainIdx]
@@ -467,8 +458,9 @@ def apply_create_SD(chainIdx, jumpIdx, createIdx, jumpType, QN, QN_create_SD, Z,
             tau_CD[chainIdx,entIdx] = new_tau_CD[createIdx,entIdx]
         
         #create new strand Q and N
-        for m in range(0,4):
+        for m in range(0,3):
             QN[chainIdx,jumpIdx+1,m] = temp[m]
+        QN[chainIdx,jumpIdx+1,3] = new_N
         
         #update free end at beginning
         QN[chainIdx,jumpIdx,3] = 1.0

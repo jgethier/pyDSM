@@ -90,7 +90,7 @@ class FSM_LINEAR(object):
         return
 
     
-    def calc_avg_stress(self,num_sync,time,stress_array):
+    def write_stress(self,num_sync,time,stress_array):
         '''
         Output the stress of all chains in ensemble
         Inputs: num_sync - sync number for simulation
@@ -247,7 +247,7 @@ class FSM_LINEAR(object):
         tau_CD_gauss_rand_SD = np.zeros(shape=(chain.QN.shape[0],250,4),dtype=float)
         tau_CD_gauss_rand_CD = np.zeros(shape=(chain.QN.shape[0],250,4),dtype=float)
         uniform_rand = np.zeros(shape=(chain.QN.shape[0],256),dtype=float)
-        add_rand = np.zeros(shape=(chain.QN.shape[0]),dtype=int)
+        add_rand = np.zeros(shape=(chain.QN.shape[0]),dtype=float)
         
         #fill random number arrays (random seed number is always advanced by +1)
         d_tau_CD_gauss_rand_SD=cuda.to_device(tau_CD_gauss_rand_SD)
@@ -358,8 +358,6 @@ class FSM_LINEAR(object):
             
             while reach_flag_all != True:
                 
-                #shift_probs = np.zeros(shape=(chain.QN.shape[0],chain.QN.shape[1]+1,chain.QN.shape[2]),dtype=int)
-                #d_shift_probs = cuda.to_device(shift_probs,stream=stream1)
                 
                 #calculate Kun step shuffle probabilities
                 ensemble_kernel.calc_probs_shuffle[dimGrid, dimBlock, stream1](d_Z,d_QN,d_tau_CD,d_shift_probs,self.input_data['CD_flag'],d_CD_create_prefact)
@@ -390,12 +388,14 @@ class FSM_LINEAR(object):
                 for j in range(0,len(shared_size)):
                     create_SDCD_chains[shared_size[j][0]] = j
                 
-#                 check_Z = d_Z.copy_to_host()
-#                 if np.any(check_Z == 1):
+
+################################DEBUGGING CODE####################################### 
+# #                 check_add_rand = d_add_rand.copy_to_host()
+#                 if np.any(check_add_rand > 0.0):
 #                     print(step_count)
 #                     print(num_refills)
-#                     print(np.argwhere(check_Z==1))
-################################DEBUGGING CODE#######################################               
+#                     print(np.argwhere(check_add_rand>0))
+#               
 #                 try:
 #                     CD_create = np.argwhere(found_shift_SDCD==4)[0]
 #                 except:
@@ -403,15 +403,20 @@ class FSM_LINEAR(object):
 #                 if CD_create is not None:
 #                     check_index = d_found_index.copy_to_host()
 #                     check_Z = d_Z.copy_to_host()
-#                     if check_index[CD_create] != check_Z[CD_create]-1 and check_Z[CD_create]!=0:
+#                     check_add_rand = d_add_rand.copy_to_host()
+#                     if check_index[CD_create] !=0 and check_add_rand[CD_create]!=0:#!= check_Z[CD_create]-1 and check_Z[CD_create]!=0:
 #                         print(step_count)
 #                         print(num_refills)
 #                         print(CD_create)
 #                         print(check_index[CD_create])
                 
-#                 if step_count>145 and step_count<175 and num_refills==58:
+#                 if step_count==33 and num_refills==0:
 #                     initial_QN = d_QN.copy_to_host()
-#                     print(initial_QN[59])
+#                     print(initial_QN[4])
+#                     print(check_add_rand[4])
+#                     tau_CD_gauss_rand_CD = d_tau_CD_gauss_rand_CD.copy_to_host()
+#                     tau_CD_used_CD = d_tau_CD_used_CD.copy_to_host()
+#                     print(tau_CD_gauss_rand_CD[4,int(tau_CD_used_CD[4]),:])
 #                    stress_calc = d_stress.copy_to_host()
 #                     print(stress_calc[1,:,2])
 #                     for j in range(0,len(stress_calc[1,1,:])):
@@ -459,13 +464,13 @@ class FSM_LINEAR(object):
                 
                 
 ##################DEBUGGING CODE######################################
-#                 if num_refills==58 and step_count==148:
+#                 if num_refills==0 and step_count==33:
 #                     check_QN = d_QN.copy_to_host()
-#                     print(check_QN[59])
+#                     print(check_QN[4])
 #                     Z = d_Z.copy_to_host()
-#                     print(Z[59])
+#                     print(Z[4])
 #                     tcd = d_tau_CD.copy_to_host()
-#                     print(tcd[59])
+#                     print(tcd[4])
 #                     tcr = d_t_cr.copy_to_host()
 #                     print(tcr[59])
 #################################################################                    
@@ -494,6 +499,7 @@ class FSM_LINEAR(object):
                 #if random numbers are used (max array size is 250), change out the used values with new random numbers and advance the random seed number
                 if step_count % 250 == 0:
                     num_refills+=1
+                    
                     random_state += 1
                     gpu_rand.gpu_tauCD_gauss_rand(seed=random_state, discrete=discrete, nchains=self.input_data['Nchains'], count=d_tau_CD_used_SD,
                                                   SDtoggle=True,CDflag=self.input_data['CD_flag'], gauss_rand=d_tau_CD_gauss_rand_SD, pcd_array=d_pcd_array,
@@ -504,6 +510,7 @@ class FSM_LINEAR(object):
                         gpu_rand.gpu_tauCD_gauss_rand(seed=random_state, discrete=discrete, nchains=self.input_data['Nchains'], count=d_tau_CD_used_CD, 
                                                       SDtoggle=False,CDflag=self.input_data['CD_flag'], gauss_rand=d_tau_CD_gauss_rand_CD,pcd_array=d_pcd_array,
                                                       pcd_table_eq=d_pcd_table_eq, pcd_table_cr=d_pcd_table_cr, pcd_table_tau=d_pcd_table_tau, refill=True)
+                    
                     random_state += 1
                     gpu_rand.gpu_uniform_rand(seed=random_state, nchains=self.input_data['Nchains'], count=d_rand_used, uniform_rand=d_uniform_rand,refill=True)
                     
@@ -519,7 +526,7 @@ class FSM_LINEAR(object):
                 stress_host = stress_host[:,1:,:]
 
             #calulcate ensemble average and write to file
-            self.calc_avg_stress(x_sync,next_sync_time,stress_host)
+            self.write_stress(x_sync,next_sync_time,stress_host)
             
             #update progress bar
             self.progbar(x_sync,num_time_syncs,20)

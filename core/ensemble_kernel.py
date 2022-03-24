@@ -17,17 +17,17 @@ def calc_probs_shuffle(Z,QN,tau_CD,shift_probs,CD_flag,CD_create_prefact):
     if j >= tz:
         return
     
-    #shift_probs[i,j,0] = shift_probs[i,j,1] = shift_probs[i,j,2] = shift_probs[i,j,3] = 0
+    shift_probs[i,j,0] = shift_probs[i,j,1] = shift_probs[i,j,2] = shift_probs[i,j,3] = 0
 
     tcd = tau_CD[i,j]
     
     QN_i = QN[i, j, :]
     if j<tz-1:
         QN_ip1 = QN[i, j+1, :]
-        Q_i = QN_i[0]*QN_i[0] + QN_i[1]*QN_i[1] + QN_i[2]*QN_i[2]
-        Q_ip1 = QN_ip1[0]*QN_ip1[0] + QN_ip1[1]*QN_ip1[1] + QN_ip1[2]*QN_ip1[2]
+        Q_i = QN_i[0]**2 + QN_i[1]**2 + QN_i[2]**2
+        Q_ip1 = QN_ip1[0]**2 + QN_ip1[1]**2 + QN_ip1[2]**2
 
-        if int(QN_ip1[3]) > 1.0:
+        if QN_ip1[3] > 1.0:
                 sig1 = 0.75 / (QN_i[3]*(QN_i[3]+1))
                 sig2 = 0.75 / (QN_ip1[3]*(QN_ip1[3]-1))
                 if Q_i==0.0:
@@ -53,6 +53,7 @@ def calc_probs_shuffle(Z,QN,tau_CD,shift_probs,CD_flag,CD_create_prefact):
         if QN_i[3] > 1.0:
                 sig1 = 0.75 / (QN_i[3]*(QN_i[3]-1))
                 sig2 = 0.75 / (QN_ip1[3]*(QN_ip1[3]+1))
+                
                 if Q_i == 0.0:
                         prefactor1 = 1.0
                 else:
@@ -61,6 +62,7 @@ def calc_probs_shuffle(Z,QN,tau_CD,shift_probs,CD_flag,CD_create_prefact):
                         prefactor2 = 1.0
                 else:
                         prefactor2 = QN_ip1[3] / (QN_ip1[3] + 1)
+                
                 if Q_i==0.0:
                         f1 = 2.0*(QN_i[3]-0.5)
                 else:
@@ -83,7 +85,7 @@ def calc_probs_shuffle(Z,QN,tau_CD,shift_probs,CD_flag,CD_create_prefact):
 @cuda.jit
 def calc_probs_chainends(Z, QN, shift_probs, CD_flag, CD_create_prefact, beta, Nk):
 
-    i = cuda.grid(1)
+    i = cuda.blockIdx.x*cuda.blockDim.x + cuda.threadIdx.x
 
     if i >= QN.shape[0]:
         return
@@ -94,9 +96,8 @@ def calc_probs_chainends(Z, QN, shift_probs, CD_flag, CD_create_prefact, beta, N
     QNfirst = QN[i,0]
     QNlast = QN[i,tz-1]
     
-    
-#     shift_probs[i,tz,0] = shift_probs[i,tz,1] = shift_probs[i,tz,2] = shift_probs[i,tz,3] = 0
-#     shift_probs[i,tz-1,0] = shift_probs[i,tz-1,1] = shift_probs[i,tz-1,2] = shift_probs[i,tz-1,3] = 0
+    shift_probs[i,tz,0] = shift_probs[i,tz,1] = shift_probs[i,tz,2] = shift_probs[i,tz,3] = 0
+    shift_probs[i,tz-1,0] = shift_probs[i,tz-1,1] = shift_probs[i,tz-1,2] = shift_probs[i,tz-1,3] = 0
 
     if tz == 1:
         shift_probs[i,tz-1,1] = int(1e6*(1.0 / (beta*Nk)))

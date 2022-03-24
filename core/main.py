@@ -43,7 +43,6 @@ class FSM_LINEAR(object):
 
         #initialize random number generator
         rng.initialize_generator(SEED)
-#         self.rs = np.random.RandomState(SEED)
         self.SEED=SEED
         num_devices = len(cuda.gpus)
         if num_devices == 0:
@@ -133,6 +132,8 @@ class FSM_LINEAR(object):
             
     def main(self):
            
+            
+
         #if CD_flag is set (constraint dynamics is on), set probability of CD parameters with analytic expression
         if self.input_data['CD_flag']==1 and self.input_data['architecture']=='linear':
             
@@ -357,8 +358,8 @@ class FSM_LINEAR(object):
             
             while reach_flag_all != True:
                 
-                shift_probs = np.zeros(shape=(chain.QN.shape[0],chain.QN.shape[1]+1,chain.QN.shape[2]),dtype=int)
-                d_shift_probs = cuda.to_device(shift_probs,stream=stream1)
+                #shift_probs = np.zeros(shape=(chain.QN.shape[0],chain.QN.shape[1]+1,chain.QN.shape[2]),dtype=int)
+                #d_shift_probs = cuda.to_device(shift_probs,stream=stream1)
                 
                 #calculate Kun step shuffle probabilities
                 ensemble_kernel.calc_probs_shuffle[dimGrid, dimBlock, stream1](d_Z,d_QN,d_tau_CD,d_shift_probs,self.input_data['CD_flag'],d_CD_create_prefact)
@@ -390,10 +391,10 @@ class FSM_LINEAR(object):
                     create_SDCD_chains[shared_size[j][0]] = j
                 
 #                 check_Z = d_Z.copy_to_host()
-#                 if np.any(check_Z < 2):
+#                 if np.any(check_Z == 1):
 #                     print(step_count)
 #                     print(num_refills)
-#                     print(np.argwhere(check_Z<2))
+#                     print(np.argwhere(check_Z==1))
 ################################DEBUGGING CODE#######################################               
 #                 try:
 #                     CD_create = np.argwhere(found_shift_SDCD==4)[0]
@@ -408,7 +409,7 @@ class FSM_LINEAR(object):
 #                         print(CD_create)
 #                         print(check_index[CD_create])
                 
-#                 if step_count>174 and step_count < 200 and num_refills==58:
+#                 if step_count>145 and step_count<175 and num_refills==58:
 #                     initial_QN = d_QN.copy_to_host()
 #                     print(initial_QN[59])
 #                    stress_calc = d_stress.copy_to_host()
@@ -570,7 +571,7 @@ class FSM_LINEAR(object):
         for l in range(1,int(uplim)):
             for j in range(p*m**l,p*m**(l+1),m**l):
                 count+=1
-        
+
         #initialize arrays for output
         time_corr = np.zeros(count,dtype=float) #array to hold correlated times (log scale) 
         stress_corr = np.zeros(shape=(self.input_data['Nchains'],count,2),dtype=float) #hold average chain stress correlations 
@@ -592,7 +593,6 @@ class FSM_LINEAR(object):
         average_err = np.sum(stress_corr_final[:,:,1],axis=0)/(self.input_data['Nchains']*np.sqrt(self.input_data['Nchains'])) #error propagation
 
         #make combined result array and write to file
-        combined = np.hstack((time_array, average_corr, average_err))
         with open('./DSM_results/Gt_result_%d.txt'%self.sim_ID, "w") as f:
             f.write('time, G(t), Error\n')
             for m in range(0,len(time_array)):

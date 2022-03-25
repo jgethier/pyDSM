@@ -17,13 +17,13 @@ class ensemble_chains(object):
 
     def z_dist(self,tNk):
 
-        y = float(rng.genrand_real3()/(1+self.beta)*pow((1+(1/self.beta)),tNk))
+        y = float(rng.genrand_real3()/(1+self.beta)*pow(1+(1/self.beta),tNk))
         z = 1
         sum1 = 0.0
         si = float(1.0/self.beta)
         while sum1 < y:
         	sum1 += si
-        	si = ((si/self.beta)*(tNk-z))/z
+        	si = si/self.beta*(tNk-z)/z
         	z += 1
 
         return z-1
@@ -65,13 +65,12 @@ class ensemble_chains(object):
                 p = rng.genrand_real3()
                 Ntmp = 0
                 sumres = 0.0
-                while p>=sumres and (Ntmp + 1) != A-i+2:
-                    sumres += self.ratio(A, Ntmp, i)
+                while p>=sumres and Ntmp+1 != A-i+2:
                     Ntmp+=1
+                    sumres += self.ratio(A, Ntmp, i)
                 tN[i-1] = Ntmp
                 A = A - Ntmp
             tN[0] = A + 1
-
         return tN
 
 
@@ -81,15 +80,12 @@ class ensemble_chains(object):
         Qy = [0.0]*tz
         Qz = [0.0]*tz
 
-        if tz>2:
-            if dangling_begin: i=1
-            else: i = 0
-
-        rng.use_last=False
-        for j in range(i,tz-1):
-            Qx[j] = rng.gauss_distr()*np.sqrt(float(Ntmp[j])/3.0)
-            Qy[j] = rng.gauss_distr()*np.sqrt(float(Ntmp[j])/3.0)
-            Qz[j] = rng.gauss_distr()*np.sqrt(float(Ntmp[j])/3.0)
+        if tz>2: #dangling ends not part of distribution
+            rng.use_last=False
+            for j in range(1,tz-1):
+                Qx[j] = rng.gauss_distr()*np.sqrt(float(Ntmp[j])/3.0)
+                Qy[j] = rng.gauss_distr()*np.sqrt(float(Ntmp[j])/3.0)
+                Qz[j] = rng.gauss_distr()*np.sqrt(float(Ntmp[j])/3.0)
 
         return Qx,Qy,Qz
 

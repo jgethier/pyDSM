@@ -144,8 +144,8 @@ def scan_kernel(Z,shift_probs,sum_W_sorted,uniform_rand,rand_used,found_index,fo
         else:
             sum1 += (temp[0] + temp[1])
                 
-    sum_W_sorted[i] = float(sum1/1e6)
-    x = math.ceil(sum1*uniform_rand[i,int(rand_used[i])])
+    sum_W_sorted[i] = sum1
+    x = int(math.ceil(sum1*uniform_rand[i,int(rand_used[i])]))
     
     xFound = yFound = zFound = wFound = False
     sum2 = 0
@@ -156,20 +156,22 @@ def scan_kernel(Z,shift_probs,sum_W_sorted,uniform_rand,rand_used,found_index,fo
         
         if sum2 < x:
             
-            xFound = (sum2 < x) & (x <= sum2 + temp[0])
+            xFound = bool((sum2 < x) & (x <= sum2 + temp[0]))
             sum2+=temp[0]
-            yFound = (sum2 < x) & (x <= sum2 + temp[1])
+
+            yFound = bool((sum2 < x) & (x <= sum2 + temp[1]))
             sum2+=temp[1]
 
             if CD_flag==1:
-                zFound = (sum2 < x) & (x <= sum2 + temp[2])
+                zFound = bool((sum2 < x) & (x <= sum2 + temp[2]))
                 sum2+=temp[2]
-                wFound = (sum2 < x) & (x <= sum2 + temp[3])
+                wFound = bool((sum2 < x) & (x <= sum2 + temp[3]))
                 sum2+=temp[3]
-                
-            if xFound or yFound or zFound or wFound:
-                break
-    
+       
+        if xFound or yFound or zFound or wFound:
+            break
+   
+            
     ii=j
     
     
@@ -242,8 +244,6 @@ def chain_control_kernel(Z,QN,chain_time,stress,reach_flag,next_sync_time,max_sy
         stress[i,arr_index,2] = sum_stress_xz
         
         write_time[i]+=1
-    
-        return
         
         
     
@@ -275,17 +275,15 @@ def chain_kernel(Z, QN, create_SDCD_chains, QN_create_SDCD, chain_time, time_com
         for j in range(1,tz+1):
             new_t_cr[createIdx,j] = t_cr[i,j-1]
             new_tau_CD[createIdx,j] = tau_CD[i,j-1]
-    else:
-        pass
     
     jumpIdx = int(found_index[i])
     jumpType = int(found_shift[i])
 
-    if sum_W_sorted[i] == 0.0:
+    if sum_W_sorted[i] == 0:
         print('Error: timestep size is infinity for chain',i)
 
     olddt = tdt[i]
-    tdt[i] = 1.0 / (sum_W_sorted[i])   
+    tdt[i] = 1.0 / (sum_W_sorted[i] / 1e6)   
 
     #Use Kahan summation to update time of chain
     y = tdt[i] - time_compensation[i]
@@ -539,9 +537,6 @@ def apply_create_CD(chainIdx, jumpIdx, createIdx, QN, QN_create_SD, Z, t_cr, new
         temp[0] *= sigma
         temp[1] *= sigma
         temp[2] *= sigma
-        temp[0] += (QN1[0] * ratio_N)
-        temp[1] += (QN1[1] * ratio_N)
-        temp[2] += (QN1[2] * ratio_N)
         temp[3] = new_N
         
         #set new last strand
@@ -564,7 +559,7 @@ def apply_create_CD(chainIdx, jumpIdx, createIdx, QN, QN_create_SD, Z, t_cr, new
             tau_CD[chainIdx,entIdx] = new_tau_CD[createIdx,entIdx]
         
         #calculate Q and N for new and previous strand
-        sigma = math.sqrt((new_N * (QN1[3] - new_N)) / (3.0 * QN1[3]))
+        sigma = math.sqrt(float(new_N * (QN1[3] - new_N)) / float(3.0 * QN1[3]))
         temp[0] *= sigma
         temp[1] *= sigma
         temp[2] *= sigma

@@ -556,7 +556,7 @@ class FSM_LINEAR(object):
         #read in stress files for stress autocorrelation function
         print("Loading stress data for G(t) calculation...",end="",flush=True)
         
-        stress_array = np.loadtxt('./DSM_results/stress_1.txt',delimiter=',',skiprows=1) #load stress file
+        stress_array = np.loadtxt(self.stress_output,delimiter=',',skiprows=1) #load stress file
         time_array = stress_array[0:,0] # tau_K values
         sampf = 1/(time_array[1]-time_array[0]) #normalize time by smallest resolution
         stress = np.array(np.reshape(stress_array[0:,1:],(len(time_array),self.input_data['Nchains']))) #reshape stress array

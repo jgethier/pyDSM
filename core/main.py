@@ -595,7 +595,6 @@ class FSM_LINEAR(object):
         #copy results to host and calculate average over all chains
         time_array = d_time.copy_to_host().astype(int) 
         stress_corr_final = d_stress_corr.copy_to_host()
-        print(stress_corr_final[499])
         average_corr = np.mean(stress_corr_final[:,:,0],axis=0) #average stress correlation
         average_err = np.sum(stress_corr_final[:,:,1],axis=0)/(self.input_data['Nchains']*np.sqrt(self.input_data['Nchains'])) #error propagation
 

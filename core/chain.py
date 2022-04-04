@@ -1,4 +1,5 @@
 import numpy as np
+import math
 import core.random_gen as rng
 from core.pcd_tau import p_cd
 
@@ -15,27 +16,28 @@ class ensemble_chains(object):
 
         return
 
+    
     def z_dist(self,tNk):
 
-        y = float(rng.genrand_real3()/(1+self.beta)*pow(1+(1/self.beta),tNk))
+        y = float(rng.genrand_real3()/(1+self.beta)*math.pow(1+(1/self.beta),tNk))
         z = 1
         sum1 = 0.0
         si = float(1.0/self.beta)
         while sum1 < y:
-        	sum1 += si
-        	si = si/self.beta*(tNk-z)/z
-        	z += 1
+            sum1 += si
+            si = si/self.beta*(tNk-z)/z
+            z += 1
 
         return z-1
 
-
+    
     def z_dist_truncated(self,tNk, z_max):
 
-    	tz = self.z_dist(tNk)
-    	while (tz > z_max):
-    		tz = z_dist(tNk)
+        tz = self.z_dist(tNk)
+        while (tz > z_max):
+            tz = z_dist(tNk)
 
-    	return tz
+        return tz
 
 
     def ratio(self, A, n, i):
@@ -59,9 +61,7 @@ class ensemble_chains(object):
 
         else:
             A = tNk-1
-            for i in range(ztmp,-1,-1):
-                if i==1:
-                    break
+            for i in range(ztmp,1,-1):
                 p = rng.genrand_real3()
                 Ntmp = 0
                 sumres = 0.0

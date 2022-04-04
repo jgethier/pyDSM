@@ -43,6 +43,7 @@ class FSM_LINEAR(object):
 
         #initialize random number generator
         rng.initialize_generator(SEED)
+        rng.use_last=False
         self.seed = SEED
         num_devices = len(cuda.gpus)
         if num_devices == 0:
@@ -141,20 +142,20 @@ class FSM_LINEAR(object):
             d_CD_create_prefact = cuda.to_device([pcd.W_CD_destroy_aver()/self.input_data['beta']])
             
             #array of constants used for tau_CD probability calculation
-            pcd_array = np.array([pcd.g, #0
-                        pcd.alpha, #1
-                        pcd.tau_0, #2
-                        pcd.tau_max, #3
-                        pcd.tau_D, #4
-                        1.0/pcd.tau_D, #5, inverse tau_D 
-                        1.0*pcd.tau_alpha/pcd.At, #6, d_At
-                        pcd.tau_0**pcd.alpha, #7, d_Dt
-                        -1.0/pcd.alpha, #8, d_Ct
-                        pcd.normdt*pcd.tau_alpha/pcd.Adt, #9, d_Adt
-                        pcd.Bdt/pcd.normdt, #10, d_Bdt 
-                        -1.0/(pcd.alpha - 1.0), #11, d_Cdt
-                        pcd.tau_0**(pcd.alpha - 1.0) #12, d_Ddt
-                        ],dtype=float)
+            pcd_array = np.array([pcd.g,                            #0
+                                  pcd.alpha,                        #1
+                                  pcd.tau_0,                        #2
+                                  pcd.tau_max,                      #3
+                                  pcd.tau_D,                        #4
+                                  1.0/pcd.tau_D,                    #5, inverse tau_D 
+                                  1.0*pcd.tau_alpha/pcd.At,         #6, d_At
+                                  pow(pcd.tau_0,pcd.alpha),         #7, d_Dt
+                                  -1.0/pcd.alpha,                   #8, d_Ct
+                                  pcd.normdt*pcd.tau_alpha/pcd.Adt, #9, d_Adt
+                                  pcd.Bdt/pcd.normdt,               #10, d_Bdt 
+                                  -1.0/(pcd.alpha - 1.0),           #11, d_Cdt
+                                  pcd.tau_0**(pcd.alpha - 1.0)      #12, d_Ddt
+                                  ],dtype=float)
             
             discrete = False #set discrete variable to False to implement analytic expression for p(tau_CD) probability
             
@@ -217,14 +218,13 @@ class FSM_LINEAR(object):
         #initialize chains
         for m in range(0,self.input_data['Nchains']):
             chain.chain_init(self.input_data['Nc'],z_max=self.input_data['Nc'],pcd=pcd)
-
+        
         print('Done.')
-
+        
         #reshape arrays for CUDA kernels
         chain.QN = chain.QN.reshape(self.input_data['Nchains'],self.input_data['Nc'],4)
         chain.tau_CD = chain.tau_CD.reshape(self.input_data['Nchains'],self.input_data['Nc'])
         chain.Z = chain.Z.reshape(self.input_data['Nchains'])
-
 
         #save initial chain conformation distributions
         self.save_distributions(os.path.join(self.output_path,'distr_Q_initial_%d.txt'%self.sim_ID),chain.QN,chain.Z)
@@ -236,7 +236,7 @@ class FSM_LINEAR(object):
         found_index = np.zeros(shape=(chain.QN.shape[0]),dtype=int)
         found_shift = np.zeros(shape=(chain.QN.shape[0]),dtype=int)
         sum_W_sorted = np.zeros(shape=(chain.QN.shape[0]),dtype=int)
-        shift_probs = np.zeros(shape=(chain.QN.shape[0],chain.QN.shape[1]+1,chain.QN.shape[2]),dtype=int)
+        shift_probs = np.zeros(shape=(chain.QN.shape[0],chain.QN.shape[1]+1,4),dtype=int)
         
         #intitialize arrays for random numbers used
         rand_used = np.zeros(shape=chain.QN.shape[0],dtype=int)
@@ -247,7 +247,7 @@ class FSM_LINEAR(object):
         uniform_rand = np.zeros(shape=(chain.QN.shape[0],250),dtype=float)
         add_rand = np.zeros(shape=(chain.QN.shape[0]),dtype=float)
         
-        #fill random number arrays (random seed number is always advanced by +1)
+        #fill random number arrays (random seed number is always advanced by +1 for each array)
         d_tau_CD_gauss_rand_SD=cuda.to_device(tau_CD_gauss_rand_SD)
         d_tau_CD_gauss_rand_CD=cuda.to_device(tau_CD_gauss_rand_CD)
         d_uniform_rand=cuda.to_device(uniform_rand)
@@ -273,13 +273,13 @@ class FSM_LINEAR(object):
         gpu_rand.gpu_uniform_rand(seed=random_state, nchains=self.input_data['Nchains'], count=250, uniform_rand=d_uniform_rand,refill=False)
         
         #initialize arrays for chain time and entanglement lifetime
-        chain_time = np.zeros(shape=chain.Z.shape[0],dtype=float)
+        chain_time = np.zeros(shape=self.input_data['Nchains'],dtype=float)
         time_resolution = self.input_data['tau_K']
-        time_compensation = np.zeros(shape=chain.Z.shape[0],dtype=float)
-        tdt = np.zeros(shape=chain.Z.shape[0],dtype=float)
+        time_compensation = np.zeros(shape=self.input_data['Nchains'],dtype=float)
+        tdt = np.zeros(shape=self.input_data['Nchains'],dtype=float)
         t_cr = np.zeros(shape=(chain.QN.shape[0],chain.QN.shape[1]),dtype=float)
-        f_t = np.zeros(shape=chain.QN.shape[0],dtype=float)
-        write_time = np.zeros(shape=chain.QN.shape[0],dtype=int)
+        f_t = np.zeros(shape=self.input_data['Nchains'],dtype=float)
+        write_time = np.zeros(shape=self.input_data['Nchains'],dtype=int)
 
         #move arrays to device
         d_QN = cuda.to_device(chain.QN)
@@ -324,16 +324,15 @@ class FSM_LINEAR(object):
         if max_sync_time > simulation_time:
             max_sync_time = simulation_time
         
-        #timer start
-        t0 = time.time()
-        
         #initialize cuda streams
         stream1 = cuda.stream()
         stream2 = cuda.stream()
         stream3 = cuda.stream()
         
-        num_refills=0
         #SIMULATION STARTS -------------------------------------------------------------------------------------------------------------------------------
+        
+        #timer start
+        t0 = time.time()
         
         #start loop over number of time syncs
         for x_sync in range(1,num_time_syncs+1):
@@ -350,11 +349,11 @@ class FSM_LINEAR(object):
             
             #initialize stress array
             stress = np.zeros(shape=(chain.QN.shape[0],int(max_sync_time/time_resolution)+1,3),dtype=float)
-            d_stress = cuda.to_device(stress)
+            d_stress = cuda.to_device(stress,stream=stream3)
             
+            stream3.synchronize()
             
-            while reach_flag_all != True:
-                
+            while not reach_flag_all:
                 
                 #calculate Kun step shuffle probabilities
                 ensemble_kernel.calc_probs_shuffle[dimGrid, dimBlock, stream1](d_Z,d_QN,d_tau_CD,d_shift_probs,self.input_data['CD_flag'],d_CD_create_prefact)
@@ -381,68 +380,9 @@ class FSM_LINEAR(object):
                 #find which chains create slip link (from SD or CD) so that shifted arrays can be stored
                 found_shift_SDCD = d_found_shift.copy_to_host(stream=stream1)
                 shared_size = np.argwhere((found_shift_SDCD==6) | (found_shift_SDCD==4))
-                create_SDCD_chains = np.ones(shape=(chain.QN.shape[0]),dtype=int)*-1
+                create_SDCD_chains = np.ones(shape=chain.QN.shape[0],dtype=int)*-1
                 for j in range(0,len(shared_size)):
-                    create_SDCD_chains[shared_size[j][0]] = j
-                
-
-################################DEBUGGING CODE####################################### 
-#                 check_add_rand = d_add_rand.copy_to_host()
-#                 t_dt = d_tdt.copy_to_host()
-#                 if np.any(t_dt > self.input_data['tau_K']):
-#                     print(step_count)
-#                     print(num_refills)
-#                     print(np.argwhere(t_dt>1))
-#                 check_add_rand = d_Z.copy_to_host()
-#                 if found_shift_SDCD[0]==3 or found_shift_SDCD[0] == 6:
-#                     print(step_count)
-#                     print(num_refills)
-#                     check_rand_used = d_tau_CD_used_SD.copy_to_host()
-#                     print(check_rand_used[0])
-#                     print(np.argwhere(check_add_rand==2))
-#               
-#                 try:
-#                     CD_create = np.argwhere(found_shift_SDCD==4)[0]
-#                 except:
-#                     CD_create = None
-#                 if CD_create is not None:
-#                     check_index = d_found_index.copy_to_host()
-#                     check_Z = d_Z.copy_to_host()
-#                     check_add_rand = d_add_rand.copy_to_host()
-#                     if check_index[CD_create] ==check_Z[CD_create]-1 and check_add_rand[CD_create]!=0:#!= check_Z[CD_create]-1 and check_Z[CD_create]!=0:
-#                         print(step_count)
-#                         print(num_refills)
-#                         print(CD_create)
-#                         print(check_index[CD_create])
-                
-#                 if step_count==124 and num_refills==14:
-#                     initial_QN = d_QN.copy_to_host()
-#                     print(initial_QN[9])
-#                     print(check_add_rand[3])
-#                     tau_CD_gauss_rand_CD = d_tau_CD_gauss_rand_CD.copy_to_host()
-#                     tau_CD_used_CD = d_tau_CD_used_CD.copy_to_host()
-#                     print(tau_CD_gauss_rand_CD[3,int(tau_CD_used_CD[3]),:])
-#                    stress_calc = d_stress.copy_to_host()
-#                     print(stress_calc[1,:,2])
-#                     for j in range(0,len(stress_calc[1,1,:])):
-#                         if stress_calc[1,1,j]< -15:
-#                             print(stress_calc[1,:,j])
-#                             print(initial_QN[j])
-#                     avg_stress = np.mean(stress_calc,axis=2)
-#                     print(avg_stress)
-
-#                     shift_prob = d_shift_probs.copy_to_host()
-#                     print(shift_prob[9])
-#                     print(found_shift_SDCD[9])
-#                     check_index = d_found_index.copy_to_host()
-#                     print(check_index[9])
-#                     Z = d_Z.copy_to_host()
-#                     print(Z[9])
-#                     tcd = d_tau_CD.copy_to_host()
-#                     print(tcd[9])
-#                     tcr = d_t_cr.copy_to_host()
-#                     print(tcr[9])
-#####################################################################################
+                    create_SDCD_chains[shared_size[j,0]] = j
                 
                 #initialize arrays for which chains create a slip link from sliding and/or constraint dynamics
                 QN_create_SDCD = np.zeros(shape=(len(shared_size),chain.QN.shape[1]+1,4))
@@ -455,6 +395,8 @@ class FSM_LINEAR(object):
                 d_new_t_cr = cuda.to_device(new_t_cr,stream=stream1)
                 d_new_tau_CD = cuda.to_device(new_tau_CD,stream=stream1)
                 
+                
+                
                 #apply jump move for each chain and update time of chain
                 ensemble_kernel.chain_kernel[blockspergrid,threadsperblock,stream1](d_Z, d_QN, d_create_SDCD_chains, d_QN_create_SDCD,
                                                                                     d_chain_time,d_time_compensation,
@@ -464,20 +406,7 @@ class FSM_LINEAR(object):
                                                                                     d_tau_CD_used_CD,d_tau_CD_gauss_rand_SD,
                                                                                     d_tau_CD_gauss_rand_CD)
                 
-                stream1.synchronize()
-                
-                
-##################DEBUGGING CODE######################################
-#                 if step_count==124 and num_refills==14:
-#                     check_QN = d_QN.copy_to_host()
-#                     print(check_QN[9])
-#                     Z = d_Z.copy_to_host()
-#                     print(Z[9])
-#                     tcd = d_tau_CD.copy_to_host()
-#                     print(tcd[9])
-#                     tcr = d_t_cr.copy_to_host()
-#                     print(tcr[9])
-#################################################################                    
+                stream1.synchronize()                   
                     
                 
                 #check if all chains reached time for sync
@@ -501,8 +430,7 @@ class FSM_LINEAR(object):
 
 
                 #if random numbers are used (max array size is 250), change out the used values with new random numbers and advance the random seed number
-                if step_count % 250 == 0:
-                    num_refills+=1
+                if step_count == 250:
                     
                     random_state += 1
                     gpu_rand.gpu_tauCD_gauss_rand(seed=random_state, discrete=discrete, nchains=self.input_data['Nchains'], count=d_tau_CD_used_SD,
@@ -520,8 +448,6 @@ class FSM_LINEAR(object):
                     
                     step_count = 0
             
-            
-            
 
             #write stress of all chains to file
             stress_host = d_stress.copy_to_host()
@@ -533,7 +459,8 @@ class FSM_LINEAR(object):
         #SIMULATION ENDS---------------------------------------------------------------------------------------------------------------------------
             
         t1 = time.time()
-        print("Total simulation time: %.2f seconds"%(t1-t0))
+        print('')
+        print("Total simulation time: %.2f minutes"%((t1-t0)/60.0))
         
         #copy final chain conformations and entanglement numbers from device to host
         QN_final = d_QN.copy_to_host()
@@ -605,6 +532,7 @@ class FSM_LINEAR(object):
                     f.write("%d, %.4f, %.4f \n"%(time_array[m],average_corr[m],average_err[m]))
             
         print('Done.')
+        print('G(t) results written to Gt_result_%d.txt'%self.sim_ID)
         
 if __name__ == "__main__":
     run_dsm = FSM_LINEAR(1)

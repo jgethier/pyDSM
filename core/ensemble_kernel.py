@@ -1,6 +1,6 @@
 import numpy as np
-import math, cmath
-from numba import cuda,float32,int32
+import math
+from numba import cuda
     
 
 @cuda.jit
@@ -67,8 +67,8 @@ def calc_probs_shuffle(Z,QN,tau_CD,shift_probs,CD_flag,CD_create_prefact):
                 shift_probs[i, j, 1] = int(1e6*friction*math.pow(prefactor1*prefactor2,0.75)*math.exp(-Q_i*sig1+Q_ip1*sig2))
 
         if CD_flag==1:
-                shift_probs[i, j, 2] = int(tcd*1e6)
-                shift_probs[i, j, 3] = int(CD_create_prefact[0]*1e6*(QN_i[3]-1.0))
+                shift_probs[i, j, 2] = int(1e6*tcd)
+                shift_probs[i, j, 3] = int(1e6*CD_create_prefact[0]*(QN_i[3]-1.0))
     
         return
 
@@ -76,13 +76,12 @@ def calc_probs_shuffle(Z,QN,tau_CD,shift_probs,CD_flag,CD_create_prefact):
 @cuda.jit
 def calc_probs_chainends(Z, QN, shift_probs, CD_flag, CD_create_prefact, beta, Nk):
 
-    i = cuda.blockIdx.x*cuda.blockDim.x + cuda.threadIdx.x
+    i = cuda.blockIdx.x*cuda.blockDim.x + cuda.threadIdx.x #chain index
 
     if i >= QN.shape[0]:
         return
 
     tz = int(Z[i])
-
 
     QNfirst = QN[i,0]
     QNlast = QN[i,tz-1]
@@ -91,7 +90,7 @@ def calc_probs_chainends(Z, QN, shift_probs, CD_flag, CD_create_prefact, beta, N
     shift_probs[i,tz-1,0] = shift_probs[i,tz-1,1] = shift_probs[i,tz-1,2] = shift_probs[i,tz-1,3] = 0
 
     if tz == 1:
-        shift_probs[i,tz-1,1] = int(1e6*(1.0 / (beta*Nk)))
+        shift_probs[i,tz-1,1] = int(1e6*(1.0 / (beta*Nk)))             
         shift_probs[i,tz,1] = int(1e6*(1.0 / (beta*Nk)))
 
     else:
@@ -115,6 +114,7 @@ def calc_probs_chainends(Z, QN, shift_probs, CD_flag, CD_create_prefact, beta, N
             else:
                 c = QNlast_p[3] * 0.5
             shift_probs[i,tz-1,0] = int(1e6*(1.0 / (c+0.75)))
+            
         else: #creation by SD at the end
             shift_probs[i,tz-1,1] = int(1e6*(2.0 / (beta * (QNlast[3]+0.5) )))
 
@@ -127,10 +127,9 @@ def calc_probs_chainends(Z, QN, shift_probs, CD_flag, CD_create_prefact, beta, N
 @cuda.jit
 def scan_kernel(Z,shift_probs,sum_W_sorted,uniform_rand,rand_used,found_index,found_shift,add_rand,CD_flag):
 
-
-    i = cuda.blockIdx.x*cuda.blockDim.x + cuda.threadIdx.x
+    i = cuda.blockIdx.x*cuda.blockDim.x + cuda.threadIdx.x #chain index
     
-    if i >= len(Z):
+    if i >= shift_probs.shape[0]:
         return
     
     tz = int(Z[i])
@@ -167,31 +166,29 @@ def scan_kernel(Z,shift_probs,sum_W_sorted,uniform_rand,rand_used,found_index,fo
                 sum2+=temp[2]
                 wFound = bool((sum2 < x) & (x <= sum2 + temp[3]))
                 sum2+=temp[3]
-       
+
         if xFound or yFound or zFound or wFound:
             break
-   
-            
-    ii=j
     
+    ii=j
     
     if xFound or yFound or zFound or wFound:
         found_index[i] = j
         if xFound:
-            found_shift[i] = 0.0
-            if (ii == int(Z[i]) - 1):
-                found_index[i] = j-1
-                found_shift[i] = 5.0 #destroy at end by SD
-            if (ii == int(Z[i])):
+            found_shift[i] = 0
+            if (ii == tz - 1):
+                found_index[i] = ii-1
+                found_shift[i] = 5 #destroy at end by SD
+            if (ii == tz):
                 found_index[i] = 0
-                found_shift[i] = 5.0 #destroy at beginning by SD
+                found_shift[i] = 5 #destroy at beginning by SD
         elif yFound:
-            found_shift[i] = 1.0
-            if (ii == int(Z[i]) - 1):
-                found_shift[i] = 3.0 #create at end by SD
-            if (ii == int(Z[i])):
+            found_shift[i] = 1
+            if (ii == tz - 1):
+                found_shift[i] = 3 #create at end by SD
+            if (ii == tz):
                 found_index[i] = 0
-                found_shift[i] = 6.0 #create at beginning by SD
+                found_shift[i] = 6 #create at beginning by SD
         elif zFound:
             found_shift[i] = 2 #destroy by CD
         elif wFound:
@@ -209,20 +206,21 @@ def chain_control_kernel(Z,QN,chain_time,stress,reach_flag,next_sync_time,max_sy
     
     i = cuda.blockIdx.x*cuda.blockDim.x + cuda.threadIdx.x #chain index
     
-    
     if i >= QN.shape[0]:
         return
             
     if reach_flag[i] != 0:
         return
     
+    
     if (chain_time[i] >= next_sync_time) and chain_time[i] <= (write_time[i]*time_resolution):
         
+        #if sync time is reached and stress was recorded, set reach flag to 1
         reach_flag[i] = 1
         
         return
         
-    if (chain_time[i] > write_time[i]*time_resolution):
+    if (chain_time[i] > write_time[i]*time_resolution): #if chain time reaches next time to record stress (every time_resolution)
         
         sum_stress_xy = sum_stress_yz = sum_stress_xz = 0.0
 
@@ -233,7 +231,7 @@ def chain_control_kernel(Z,QN,chain_time,stress,reach_flag,next_sync_time,max_sy
         
         tz = int(Z[i])
         
-        for j in range(0,tz):
+        for j in range(1,tz-1):
 
             sum_stress_xy -= (3.0*QN[i,j,0]*QN[i,j,1] / QN[i,j,3])
             sum_stress_yz -= (3.0*QN[i,j,1]*QN[i,j,2] / QN[i,j,3])
@@ -247,15 +245,13 @@ def chain_control_kernel(Z,QN,chain_time,stress,reach_flag,next_sync_time,max_sy
         
         
     
-    
 @cuda.jit
 def chain_kernel(Z, QN, create_SDCD_chains, QN_create_SDCD, chain_time, time_compensation, reach_flag, found_shift, found_index, tdt, sum_W_sorted,
                  t_cr, new_t_cr, f_t, tau_CD, new_tau_CD, rand_used, add_rand, tau_CD_used_SD, tau_CD_used_CD, tau_CD_gauss_rand_SD, tau_CD_gauss_rand_CD):
    
     
     i = cuda.blockIdx.x*cuda.blockDim.x + cuda.threadIdx.x #chain index
-
-       
+      
     if i >= QN.shape[0]:
         return
     
@@ -266,24 +262,26 @@ def chain_kernel(Z, QN, create_SDCD_chains, QN_create_SDCD, chain_time, time_com
     
     #store shifted arrays for chains that create an entanglement by SD or CD
     createIdx = int(create_SDCD_chains[i])
+    
+    #shifted arrays stored in QN_create_SDCD
     if createIdx >= 0:
         for j in range(1,tz+1):
-            QN_create_SDCD[createIdx,j,0] = QN[i,j-1,0]
-            QN_create_SDCD[createIdx,j,1] = QN[i,j-1,1]
-            QN_create_SDCD[createIdx,j,2] = QN[i,j-1,2]
-            QN_create_SDCD[createIdx,j,3] = QN[i,j-1,3]
-        for j in range(1,tz+1):
+            for m in range(0,4):
+                QN_create_SDCD[createIdx,j,m] = QN[i,j-1,m]
+
             new_t_cr[createIdx,j] = t_cr[i,j-1]
             new_tau_CD[createIdx,j] = tau_CD[i,j-1]
     
+    #chosen process and location along chain
     jumpIdx = int(found_index[i])
     jumpType = int(found_shift[i])
 
     if sum_W_sorted[i] == 0:
         print('Error: timestep size is infinity for chain',i)
 
+    #set time step to be length of time to make single jump
     olddt = tdt[i]
-    tdt[i] = 1.0 / (sum_W_sorted[i] / 1e6)   
+    tdt[i] = 1.0 / float(sum_W_sorted[i] / 1e6)   
 
     #Use Kahan summation to update time of chain
     y = tdt[i] - time_compensation[i]
@@ -293,6 +291,7 @@ def chain_kernel(Z, QN, create_SDCD_chains, QN_create_SDCD, chain_time, time_com
         
     rand_used[i]+=1
 
+    #apply jump processes to each chain
     if jumpType == 0 or jumpType == 1:
         apply_shuffle(i, jumpIdx, jumpType, QN)
 
@@ -304,7 +303,7 @@ def chain_kernel(Z, QN, create_SDCD_chains, QN_create_SDCD, chain_time, time_com
 
     elif jumpType == 4:
         apply_create_CD(i, jumpIdx, createIdx, QN, QN_create_SDCD, Z, t_cr, new_t_cr, tau_CD, new_tau_CD, tau_CD_used_CD, tau_CD_gauss_rand_CD, add_rand)
-    
+        
     else:
         return
     
@@ -355,7 +354,8 @@ def apply_destroy(chainIdx, jumpIdx, jumpType, QN, Z, t_cr, tau_CD, f_t, chain_t
         #set previous free strand at end of chain to 0s
         QN[chainIdx,tz-1,0] = QN[chainIdx,tz-1,1] = QN[chainIdx,tz-1,2] = QN[chainIdx,tz-1,3] = 0.0
 
-
+        return 
+    
     elif jumpIdx == tz-2:
         #destroy entanglement at end of chain
         
@@ -370,7 +370,8 @@ def apply_destroy(chainIdx, jumpIdx, jumpType, QN, Z, t_cr, tau_CD, f_t, chain_t
 
         t_cr[chainIdx,jumpIdx+1] = 0.0
         tau_CD[chainIdx,jumpIdx+1] = 0.0
-
+        
+        return
             
     else:
         
@@ -448,9 +449,9 @@ def apply_create_SD(chainIdx, jumpIdx, createIdx, jumpType, QN, QN_create_SD, Z,
         #create new strand at beginning of chain from sliding dynamics
         
         #shift all indices of other strands in array +1 to create new strand
-        for entIdx in range(jumpIdx+1,tz):
+        for entIdx in range(jumpIdx+1,tz+1):
             for m in range(0,4):
-                QN[chainIdx,entIdx+1,m] = QN_create_SD[createIdx,entIdx+1,m]
+                QN[chainIdx,entIdx,m] = QN_create_SD[createIdx,entIdx,m]
         
             t_cr[chainIdx,entIdx] = new_t_cr[createIdx,entIdx]
             tau_CD[chainIdx,entIdx] = new_tau_CD[createIdx,entIdx]
@@ -489,14 +490,28 @@ def apply_create_CD(chainIdx, jumpIdx, createIdx, QN, QN_create_SD, Z, t_cr, new
     
     new_N = math.floor(0.5 + add_rand[chainIdx] * (QN1[3] - 2.0)) + 1.0
     
+    temp[3] = new_N
+    
+    sigma = math.sqrt(float(new_N * (QN1[3] - new_N)) / float(3.0 * QN1[3]))
+    
+    if jumpIdx == tz-1:
+        sigma = math.sqrt(new_N / 3.0) 
+    
     ratio_N = new_N / QN1[3]
         
     if jumpIdx == 0:
         
+        #calculate Q and N for new and previous strand 
+        temp[3] = QN1[3] - new_N
+        sigma = math.sqrt(temp[3] / 3.0)
+        temp[0] *= sigma
+        temp[1] *= sigma
+        temp[2] *= sigma
+        
         #shift other entanglements
-        for entIdx in range(jumpIdx+1,tz):
+        for entIdx in range(jumpIdx+1,tz+1):
             for m in range(0,4):
-                QN[chainIdx,entIdx+1,m] = QN_create_SD[createIdx,entIdx+1,m]
+                QN[chainIdx,entIdx,m] = QN_create_SD[createIdx,entIdx,m]
         
             t_cr[chainIdx,entIdx] = new_t_cr[createIdx,entIdx]
             tau_CD[chainIdx,entIdx] = new_tau_CD[createIdx,entIdx]
@@ -504,78 +519,44 @@ def apply_create_CD(chainIdx, jumpIdx, createIdx, QN, QN_create_SD, Z, t_cr, new
         #set tau_CD t_cr (creation time of entanglement is 0 for constraint dynamics)
         tau_CD[chainIdx,jumpIdx] = tCD
         t_cr[chainIdx,jumpIdx] = 0.0
-        
-        #calculate Q and N for new and previous strand 
-        sigma = math.sqrt( (QN1[3] - new_N) / 3.0)
-        temp[0] *= sigma
-        temp[1] *= sigma
-        temp[2] *= sigma
-        temp[3] = QN1[3] - new_N
-        
-        if jumpIdx < tz-1:
-            #previous strand is updated
-            for m in range(0,4):
-                QN[chainIdx,jumpIdx+1,m] = temp[m]
-                
-        if jumpIdx == tz-1:
-            QN[chainIdx,jumpIdx+1,0] = QN[chainIdx,jumpIdx+1,1] = QN[chainIdx,jumpIdx+1,2] = 0.0
-            QN[chainIdx,jumpIdx+1,3] = temp[3]
+    
+        #previous strand is updated
+        for m in range(0,4):
+            QN[chainIdx,jumpIdx+1,m] = temp[m]
 
         #at jump index, create new strand Q and N
         QN[chainIdx,jumpIdx,3] = new_N
         QN[chainIdx,jumpIdx,0] = QN[chainIdx,jumpIdx,1] = QN[chainIdx,jumpIdx,2] = 0.0
         
+        return 
+    
+    temp[0] *= sigma
+    temp[1] *= sigma
+    temp[2] *= sigma
+    temp[0] += (QN1[0] * ratio_N)
+    temp[1] += (QN1[1] * ratio_N)
+    temp[2] += (QN1[2] * ratio_N) 
+        
+    #shift all strands in front of new entanglement
+    for entIdx in range(jumpIdx+1,tz+1):
+        for m in range(0,4):
+            QN[chainIdx,entIdx,m] = QN_create_SD[createIdx,entIdx,m]
 
-    if jumpIdx == tz-1 and jumpIdx > 0:
+        t_cr[chainIdx,entIdx] = new_t_cr[createIdx,entIdx]
+        tau_CD[chainIdx,entIdx] = new_tau_CD[createIdx,entIdx]
         
-        #set tau_CD t_cr (creation time of entanglement is 0 for constraint dynamics)
-        tau_CD[chainIdx,jumpIdx] = tCD
-        t_cr[chainIdx,jumpIdx] = 0.0
-        
-        #calculate Q and N for new and previous strand
-        sigma = math.sqrt(new_N / 3.0)
-        temp[0] *= sigma
-        temp[1] *= sigma
-        temp[2] *= sigma
-        temp[3] = new_N
-        
-        #set new last strand
+    #create new strands Q and N at jumpIdx and jumpIdx+1
+    for m in range(0,4):
+        QN[chainIdx,jumpIdx+1,m] = QN1[m] - temp[m]   
+        QN[chainIdx,jumpIdx,m] = temp[m]
+    
+    #if create by CD at end of chain, set jumpIdx+1 to free end
+    if jumpIdx == tz-1:
         QN[chainIdx,jumpIdx+1,0] = QN[chainIdx,jumpIdx+1,1] = QN[chainIdx,jumpIdx+1,2] = 0.0
-        QN[chainIdx,jumpIdx+1,3] = QN1[3] - new_N
         
-        #set new strand Q and  N
-        for m in range(0,4):
-            QN[chainIdx,jumpIdx,m] = temp[m]
-        
-        
-    if jumpIdx !=0 and jumpIdx != tz-1:
-        
-        #shift all strands in front of new entanglement
-        for entIdx in range(jumpIdx+1,tz):
-            for m in range(0,4):
-                QN[chainIdx,entIdx+1,m] = QN_create_SD[createIdx,entIdx+1,m]
-        
-            t_cr[chainIdx,entIdx] = new_t_cr[createIdx,entIdx]
-            tau_CD[chainIdx,entIdx] = new_tau_CD[createIdx,entIdx]
-        
-        #calculate Q and N for new and previous strand
-        sigma = math.sqrt(float(new_N * (QN1[3] - new_N)) / float(3.0 * QN1[3]))
-        temp[0] *= sigma
-        temp[1] *= sigma
-        temp[2] *= sigma
-        temp[0] += (QN1[0] * ratio_N)
-        temp[1] += (QN1[1] * ratio_N)
-        temp[2] += (QN1[2] * ratio_N) 
-        temp[3] = new_N
-        
-        #create new strands Q and N at jumpIdx and jumpIdx+1
-        for m in range(0,4):
-            QN[chainIdx,jumpIdx+1,m] = QN1[m] - temp[m]   
-            QN[chainIdx,jumpIdx,m] = temp[m]
-        
-        #set tau_CD and creation time of new entanglement
-        tau_CD[chainIdx,jumpIdx] = tCD
-        t_cr[chainIdx,jumpIdx] = 0
+    #set tau_CD and creation time of new entanglement
+    tau_CD[chainIdx,jumpIdx] = tCD
+    t_cr[chainIdx,jumpIdx] = 0
         
         
     return

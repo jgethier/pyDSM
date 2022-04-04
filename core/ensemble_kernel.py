@@ -32,13 +32,13 @@ def calc_probs_shuffle(Z,QN,tau_CD,shift_probs,CD_flag,CD_create_prefact):
                 sig2 = 0.75 / (QN_ip1[3]*(QN_ip1[3]-1))
                 if Q_i==0.0:
                         prefactor1 = 1.0
-                        f1 = 2.0*(QN_i[3]+0.5)
+                        f1 = 2.0*QN_i[3]+0.5
                 else:
                         prefactor1 = QN_i[3] / (QN_i[3] + 1)
                         f1 = QN_i[3]
                 if Q_ip1 == 0.0:
                         prefactor2 = 1.0
-                        f2 = 2.0*(QN_ip1[3]-0.5)
+                        f2 = 2.0*QN_ip1[3]-0.5
                 else:
                         prefactor2 = QN_ip1[3] / (QN_ip1[3] - 1)
                         f2 = QN_ip1[3]
@@ -52,13 +52,13 @@ def calc_probs_shuffle(Z,QN,tau_CD,shift_probs,CD_flag,CD_create_prefact):
                 
                 if Q_i == 0.0:
                         prefactor1 = 1.0
-                        f1 = 2.0*(QN_i[3]-0.5)
+                        f1 = 2.0*QN_i[3]-0.5
                 else:
                         prefactor1 = QN_i[3] / (QN_i[3] - 1)
                         f1 = QN_i[3]
                 if Q_ip1 == 0.0:
                         prefactor2 = 1.0
-                        f2 = 2.0*(QN_ip1[3]+0.5)
+                        f2 = 2.0*QN_ip1[3]+0.5
                 else:
                         prefactor2 = QN_ip1[3] / (QN_ip1[3] + 1)
                         f2 = QN_ip1[3]

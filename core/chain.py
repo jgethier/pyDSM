@@ -6,13 +6,14 @@ from core.pcd_tau import p_cd
 
 class ensemble_chains(object):
 
-    def __init__(self, config):
+    def __init__(self, config, seed):
 
         self.beta = config['beta']
         self.CD_flag = config['CD_flag']
         self.QN = []
         self.tau_CD = []
         self.Z = []
+        rng.initialize_generator(seed)
 
         return
 

@@ -34,15 +34,10 @@ class FSM_LINEAR(object):
             sys.exit("No input file found.")
 
         #set seed number based on num argument
-        if sim_ID != 0:
-            SEED = sim_ID*self.input_data['Nchains']
-            print("Simulation ID: %d"%(sim_ID))
-            print("Using %d*Nchains as a seed for the random number generator"%(sim_ID))
-        else:
-            SEED = self.input_data['Nchains']
+        SEED = sim_ID*self.input_data['Nchains']
+        print("Simulation ID: %d"%(sim_ID))
+        print("Using %d*Nchains as a seed for the random number generator"%(sim_ID))
 
-        #initialize random number generator
-        rng.initialize_generator(SEED)
         self.seed = SEED
         num_devices = len(cuda.gpus)
         if num_devices == 0:
@@ -63,12 +58,12 @@ class FSM_LINEAR(object):
         '''
         Q = []
         L = []
-        for i in range(0,QN.shape[0]):
+        for i in range(0,self.input_data['Nchains']):
             L_value = 0.0
             for j in range(1,int(Z[i])-1):
-                x2 = QN[i,j,0]*QN[i,j,0]
-                y2 = QN[i,j,1]*QN[i,j,1]
-                z2 = QN[i,j,2]*QN[i,j,2]
+                x2 = QN[i,j,0]**2
+                y2 = QN[i,j,1]**2
+                z2 = QN[i,j,2]**2
                 Q_value = np.sqrt(x2+y2+z2)
                 L_value += Q_value
                 Q.append(Q_value)
@@ -145,7 +140,7 @@ class FSM_LINEAR(object):
         if self.input_data['CD_flag']==1 and self.input_data['architecture']=='linear':
             
             #initialize constants for constraint dynamics probability calculation
-            pcd = p_cd_linear(self.input_data['Nc'],self.input_data['beta'])
+            pcd = p_cd_linear(self.input_data['NK'],self.input_data['beta'])
             d_CD_create_prefact = cuda.to_device([pcd.W_CD_destroy_aver()/self.input_data['beta']])
             
             #array of constants used for tau_CD probability calculation
@@ -220,17 +215,17 @@ class FSM_LINEAR(object):
             
         #generate initial chain conformations on host CPU
         print('Generating initial chain conformations on host...',end="",flush=True)
-        chain = ensemble_chains(self.input_data)
+        chain = ensemble_chains(self.input_data,self.seed)
         
         #initialize chains
         for m in range(0,self.input_data['Nchains']):
-            chain.chain_init(self.input_data['Nc'],z_max=self.input_data['Nc'],pcd=pcd)
+            chain.chain_init(self.input_data['NK'],z_max=self.input_data['NK'],pcd=pcd)
         
         print('Done.')
         
         #reshape arrays for CUDA kernels
-        chain.QN = chain.QN.reshape(self.input_data['Nchains'],self.input_data['Nc'],4)
-        chain.tau_CD = chain.tau_CD.reshape(self.input_data['Nchains'],self.input_data['Nc'])
+        chain.QN = chain.QN.reshape(self.input_data['Nchains'],self.input_data['NK'],4)
+        chain.tau_CD = chain.tau_CD.reshape(self.input_data['Nchains'],self.input_data['NK'])
         chain.Z = chain.Z.reshape(self.input_data['Nchains'])
 
         #save initial chain conformation distributions
@@ -320,7 +315,7 @@ class FSM_LINEAR(object):
         #set grid dimensions
         dimBlock = (32,32)
         dimGrid_x = (self.input_data['Nchains']+dimBlock[0]-1)//dimBlock[0]
-        dimGrid_y = (self.input_data['Nc']+dimBlock[1]-1)//dimBlock[1]
+        dimGrid_y = (self.input_data['NK']+dimBlock[1]-1)//dimBlock[1]
         dimGrid = (dimGrid_x,dimGrid_y)
         
         #flattened grid dimensions
@@ -367,7 +362,7 @@ class FSM_LINEAR(object):
 
                 #calculate probabilities at chain ends (create, destroy, or shuffle at ends)
                 ensemble_kernel.calc_probs_chainends[blockspergrid, threadsperblock, stream2](d_Z,d_QN,d_shift_probs,self.input_data['CD_flag'],
-                                                                                             d_CD_create_prefact,self.input_data['beta'],self.input_data['Nc'])
+                                                                                             d_CD_create_prefact,self.input_data['beta'],self.input_data['NK'])
                 stream2.synchronize()
 
                 #control chain time and stress calculation

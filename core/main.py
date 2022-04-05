@@ -43,7 +43,6 @@ class FSM_LINEAR(object):
 
         #initialize random number generator
         rng.initialize_generator(SEED)
-        rng.use_last=False
         self.seed = SEED
         num_devices = len(cuda.gpus)
         if num_devices == 0:
@@ -65,14 +64,16 @@ class FSM_LINEAR(object):
         Q = []
         L = []
         for i in range(0,QN.shape[0]):
+            L_value = 0.0
             for j in range(1,int(Z[i])-1):
                 x2 = QN[i,j,0]*QN[i,j,0]
                 y2 = QN[i,j,1]*QN[i,j,1]
                 z2 = QN[i,j,2]*QN[i,j,2]
-                Q.append(np.sqrt(x2 + y2 + z2))
-                if np.sqrt(x2 + y2 + z2) == 0.0:
-                    print('Chain %d'%(i))
-            L.append(np.sum(Q[i]))
+                Q_value = np.sqrt(x2+y2+z2)
+                L_value += Q
+                Q.append(Q_value)
+                
+            L.append(L_value)
 
         Q_sorted = np.sort(Q)
         L_sorted = np.sort(L)

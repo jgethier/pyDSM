@@ -70,7 +70,7 @@ class FSM_LINEAR(object):
                 y2 = QN[i,j,1]*QN[i,j,1]
                 z2 = QN[i,j,2]*QN[i,j,2]
                 Q_value = np.sqrt(x2+y2+z2)
-                L_value += Q
+                L_value += Q_value
                 Q.append(Q_value)
                 
             L.append(L_value)

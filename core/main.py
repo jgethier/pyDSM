@@ -55,7 +55,7 @@ class FSM_LINEAR(object):
         return
 
 
-    def save_distributions(self,filename,QN,Z):
+    def save_distributions(self,file,QN,Z):
         '''
         Function to save Q distributions to file
         Inputs: filename - name of file with extension (.txt, .dat, etc.)
@@ -63,19 +63,25 @@ class FSM_LINEAR(object):
                 Z - number of entanglements in each chain
         '''
         Q = []
+        L = []
         for i in range(0,QN.shape[0]):
             for j in range(1,int(Z[i])-1):
                 x2 = QN[i,j,0]*QN[i,j,0]
                 y2 = QN[i,j,1]*QN[i,j,1]
                 z2 = QN[i,j,2]*QN[i,j,2]
                 Q.append(np.sqrt(x2 + y2 + z2))
-
                 if np.sqrt(x2 + y2 + z2) == 0.0:
                     print('Chain %d'%(i))
+            L.append(np.sum(Q[i]))
 
         Q_sorted = np.sort(Q)
-
-        np.savetxt(filename, Q_sorted)
+        L_sorted = np.sort(L)
+        
+        Q_file = os.path.join(self.output_path,'distr_Q_%s_%d.txt'%(file,self.sim_ID))
+        L_file = os.path.join(self.output_path,'distr_L_%s_%d.txt'%(file,self.sim_ID))
+        
+        np.savetxt(Q_file, Q_sorted)
+        np.savetxt(L_file, L_sorted)
 
         return
 
@@ -227,7 +233,7 @@ class FSM_LINEAR(object):
         chain.Z = chain.Z.reshape(self.input_data['Nchains'])
 
         #save initial chain conformation distributions
-        self.save_distributions(os.path.join(self.output_path,'distr_Q_initial_%d.txt'%self.sim_ID),chain.QN,chain.Z)
+        self.save_distributions('initial',chain.QN,chain.Z)
 
         #save initial Z distribution to file
         np.savetxt(os.path.join(self.output_path,'Z_initial_%d.txt'%self.sim_ID),chain.Z,fmt='%d')
@@ -477,7 +483,7 @@ class FSM_LINEAR(object):
                 
         #save final distributions to file
         np.savetxt(os.path.join(self.output_path,'Z_final_%d.txt'%self.sim_ID),Z_final,fmt='%d')
-        self.save_distributions(os.path.join(self.output_path,'distr_Q_final_%d.txt'%self.sim_ID),QN_final,Z_final)
+        self.save_distributions('final',QN_final,Z_final)
         
         
         #read in stress files for stress autocorrelation function

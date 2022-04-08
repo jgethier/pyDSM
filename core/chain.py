@@ -1,7 +1,9 @@
 import numpy as np
 import math
-import core.random_gen as rng
 from core.pcd_tau import p_cd
+from numpy.random import default_rng
+
+#import core.random_gen as rng
 
 
 class ensemble_chains(object):
@@ -13,14 +15,19 @@ class ensemble_chains(object):
         self.QN = []
         self.tau_CD = []
         self.Z = []
-        rng.initialize_generator(seed)
+        #rng.initialize_generator(seed)
+        self.rng = default_rng(seed)
 
         return
 
     
     def z_dist(self,tNk):
-
-        y = float(rng.genrand_real3()/(1+self.beta)*math.pow(1+(1/self.beta),tNk))
+        
+        p = self.rng.uniform()
+        while p <= 0.0: #exclude 0 from uniform random numbers so random number is in interval (0,1)
+            p = self.rng.uniform()
+            
+        y = float(p/(1+self.beta)*math.pow(1+(1/self.beta),tNk))
         z = 1
         sum1 = 0.0
         si = float(1.0/self.beta)
@@ -36,7 +43,7 @@ class ensemble_chains(object):
 
         tz = self.z_dist(tNk)
         while (tz > z_max):
-            tz = z_dist(tNk)
+            tz = self.z_dist(tNk)
 
         return tz
 
@@ -63,10 +70,12 @@ class ensemble_chains(object):
         else:
             A = tNk-1
             for i in range(ztmp,1,-1):
-                p = rng.genrand_real3()
+                p = self.rng.uniform()
+                while p <= 0.0: #exclude 0 from uniform random numbers so random number is in interval (0,1)
+                    p = self.rng.uniform()
                 Ntmp = 0
                 sumres = 0.0
-                while p>=sumres and Ntmp+1 != A-i+2:
+                while (p>=sumres) and ((Ntmp+1) != (A-i+2)):
                     Ntmp+=1
                     sumres += self.ratio(A, Ntmp, i)
                 tN[i-1] = Ntmp
@@ -82,11 +91,14 @@ class ensemble_chains(object):
         Qz = [0.0]*tz
 
         if tz>2: #dangling ends not part of distribution
-            rng.use_last=False
+            #rng.use_last=False
             for j in range(1,tz-1):
-                Qx[j] = rng.gauss_distr()*np.sqrt(float(Ntmp[j])/3.0)
-                Qy[j] = rng.gauss_distr()*np.sqrt(float(Ntmp[j])/3.0)
-                Qz[j] = rng.gauss_distr()*np.sqrt(float(Ntmp[j])/3.0)
+#                 Qx[j] = rng.gauss_distr()*np.sqrt(float(Ntmp[j])/3.0)
+#                 Qy[j] = rng.gauss_distr()*np.sqrt(float(Ntmp[j])/3.0)
+#                 Qz[j] = rng.gauss_distr()*np.sqrt(float(Ntmp[j])/3.0)
+                Qx[j] = self.rng.standard_normal()*np.sqrt(float(Ntmp[j])/3.0)
+                Qy[j] = self.rng.standard_normal()*np.sqrt(float(Ntmp[j])/3.0)
+                Qz[j] = self.rng.standard_normal()*np.sqrt(float(Ntmp[j])/3.0)
 
         return Qx,Qy,Qz
 

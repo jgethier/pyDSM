@@ -1,10 +1,22 @@
 import numpy as np
 import math
 from numba import cuda
+from numba import boolean
     
 
+@cuda.jit(device=True)
+def apply_strain(i,j,QN,dt,kappa):
+    
+    Q = QN[i,j,:]
+    Q[0] = Q[0] + dt*kappa[0]*Q[0] + dt*kappa[1]*Q[1] + dt*kappa[2]*Q[2]
+    Q[1] = Q[1] + dt*kappa[3]*Q[0] + dt*kappa[4]*Q[1] + dt*kappa[5]*Q[2]
+    Q[2] = Q[2] + dt*kappa[6]*Q[0] + dt*kappa[7]*Q[1] + dt*kappa[8]*Q[2]
+    Q[3] = Q[3]
+    
+    return
+
 @cuda.jit
-def calc_probs_shuffle(Z,QN,tau_CD,shift_probs,CD_flag,CD_create_prefact):
+def calc_probs_shuffle(Z,QN,tau_CD,shift_probs,CD_flag,CD_create_prefact,flow,dt,kappa):
 
     i = cuda.blockIdx.x*cuda.blockDim.x + cuda.threadIdx.x #chain index
     j = cuda.blockIdx.y*cuda.blockDim.y + cuda.threadIdx.y #strand index
@@ -20,10 +32,17 @@ def calc_probs_shuffle(Z,QN,tau_CD,shift_probs,CD_flag,CD_create_prefact):
     shift_probs[i,j,0] = shift_probs[i,j,1] = shift_probs[i,j,2] = shift_probs[i,j,3] = 0
 
     tcd = tau_CD[i,j]
+
+    if bool(flow):
+        apply_strain(i,j,QN,dt[i],kappa)
+        cuda.syncthreads()
     
     QN_i = QN[i, j, :]
+    
     if j<tz-1:
+
         QN_ip1 = QN[i, j+1, :]
+            
         Q_i = QN_i[0]**2 + QN_i[1]**2 + QN_i[2]**2
         Q_ip1 = QN_ip1[0]**2 + QN_ip1[1]**2 + QN_ip1[2]**2
 
@@ -222,7 +241,7 @@ def chain_control_kernel(Z,QN,chain_time,stress,reach_flag,next_sync_time,max_sy
         
     if (chain_time[i] > write_time[i]*time_resolution): #if chain time reaches next time to record stress (every time_resolution)
         
-        sum_stress_xy = sum_stress_yz = sum_stress_xz = 0.0
+        sum_stress_xx = sum_stress_yy = sum_stress_zz = sum_stress_xy = sum_stress_yz = sum_stress_xz = 0.0
 
         if int((chain_time[i]%max_sync_time)/time_resolution)==0 and write_time[i] != 0:
             arr_index = int(max_sync_time/time_resolution)
@@ -232,14 +251,20 @@ def chain_control_kernel(Z,QN,chain_time,stress,reach_flag,next_sync_time,max_sy
         tz = int(Z[i])
         
         for j in range(1,tz-1):
-
-            sum_stress_xy -= (3.0*QN[i,j,0]*QN[i,j,1] / QN[i,j,3])
-            sum_stress_yz -= (3.0*QN[i,j,1]*QN[i,j,2] / QN[i,j,3])
-            sum_stress_xz -= (3.0*QN[i,j,0]*QN[i,j,2] / QN[i,j,3])
-
-        stress[i,arr_index,0] = sum_stress_xy
-        stress[i,arr_index,1] = sum_stress_yz
-        stress[i,arr_index,2] = sum_stress_xz
+            
+            sum_stress_xx -= (3.0*QN[i,j,0]*QN[i,j,0] / QN[i,j,3]) #tau_xx
+            sum_stress_yy -= (3.0*QN[i,j,1]*QN[i,j,1] / QN[i,j,3]) #tau_yy
+            sum_stress_zz -= (3.0*QN[i,j,2]*QN[i,j,2] / QN[i,j,3]) #tau_zz
+            sum_stress_xy -= (3.0*QN[i,j,0]*QN[i,j,1] / QN[i,j,3]) #tau_xy
+            sum_stress_yz -= (3.0*QN[i,j,1]*QN[i,j,2] / QN[i,j,3]) #tau_yz
+            sum_stress_xz -= (3.0*QN[i,j,0]*QN[i,j,2] / QN[i,j,3]) #tau_xz
+        
+        stress[i,arr_index,0] = sum_stress_xx
+        stress[i,arr_index,1] = sum_stress_yy
+        stress[i,arr_index,2] = sum_stress_zz
+        stress[i,arr_index,3] = sum_stress_xy
+        stress[i,arr_index,4] = sum_stress_yz
+        stress[i,arr_index,5] = sum_stress_xz
         
         write_time[i]+=1
         

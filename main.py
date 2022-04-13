@@ -35,10 +35,10 @@ class FSM_LINEAR(object):
 
         #set seed number based on num argument
         SEED = sim_ID*self.input_data['Nchains']
+        self.seed = SEED
         print("Simulation ID: %d"%(sim_ID))
         print("Using %d*Nchains as a seed for the random number generator"%(sim_ID))
-
-        self.seed = SEED
+        
         num_devices = len(cuda.gpus)
         if num_devices == 0:
             sys.exit("No GPU found.")
@@ -110,7 +110,10 @@ class FSM_LINEAR(object):
         
         if num_sync == 1:
             with open(self.stress_output,'w') as f:
-                f.write('time, stress_1, stress_2, ..., stress_nchains\n')     
+                if self.flow:
+                    f.write('time, tau_xx, tau_yy, tau_zz, tau_xy, tau_yz, tau_xz\n')
+                else:
+                    f.write('time, stress_1, stress_2, ..., stress_nchains\n')     
             self.old_sync_time = 0
             time_index = 0
         
@@ -120,9 +123,13 @@ class FSM_LINEAR(object):
         time_resolution = self.input_data['tau_K']
         time_array = np.arange(self.old_sync_time,time+0.5,time_resolution)
         time_array = np.reshape(time_array[time_index:],(1,len(time_array[time_index:])))
-
-        stress = np.reshape(stress_array[:,time_index:,0],(self.input_data['Nchains'],len(stress_array[0,time_index:,0])))    
         
+        if self.flow:
+            stress = np.mean(stress_array[:,time_index:,:],axis=0)
+            stress = np.reshape(stress,(6,len(stress[:,0])))
+        else:
+            stress = np.reshape(stress_array[:,time_index:,3],(self.input_data['Nchains'],len(stress_array[0,time_index:,3])))    
+            
         #combined = np.hstack((time_array.T,avg_stress, stdev_stress))
         combined = np.hstack((time_array.T, stress.T))
         
@@ -134,8 +141,8 @@ class FSM_LINEAR(object):
         return 
 
             
-    def main(self):     
-
+    def main(self):   
+        
         #if CD_flag is set (constraint dynamics is on), set probability of CD parameters with analytic expression
         if self.input_data['CD_flag']==1 and self.input_data['architecture']=='linear':
             
@@ -222,6 +229,16 @@ class FSM_LINEAR(object):
             chain.chain_init(self.input_data['NK'],z_max=self.input_data['NK'],pcd=pcd)
         
         print('Done.')
+        
+        #simulation in flow if kappa strain tensor is set
+        if np.any(np.array(self.input_data['kappa'])!=0.0):
+            print("")
+            print("Strain tensor is non-zero. Simulating polymers in flow...")
+            d_kappa = cuda.to_device(self.input_data['kappa'])
+            self.flow = True
+        else:
+            self.flow = False
+            d_kappa = cuda.to_device(self.input_data['kappa'])
         
         #reshape arrays for CUDA kernels
         chain.QN = chain.QN.reshape(self.input_data['Nchains'],self.input_data['NK'],4)
@@ -350,7 +367,7 @@ class FSM_LINEAR(object):
             d_reach_flag = cuda.to_device(reach_flag,stream=stream3)  
             
             #initialize stress array
-            stress = np.zeros(shape=(chain.QN.shape[0],int(max_sync_time/time_resolution)+1,3),dtype=float)
+            stress = np.zeros(shape=(chain.QN.shape[0],int(max_sync_time/time_resolution)+1,6),dtype=float)
             d_stress = cuda.to_device(stress,stream=stream3)
             
             stream3.synchronize()
@@ -358,20 +375,21 @@ class FSM_LINEAR(object):
             while not reach_flag_all:
                 
                 #calculate Kun step shuffle probabilities
-                ensemble_kernel.calc_probs_shuffle[dimGrid, dimBlock, stream1](d_Z,d_QN,d_tau_CD,d_shift_probs,self.input_data['CD_flag'],d_CD_create_prefact)
+                ensemble_kernel.calc_probs_shuffle[dimGrid, dimBlock, stream1](d_Z,d_QN,d_tau_CD,d_shift_probs,self.input_data['CD_flag'],
+                                                                               d_CD_create_prefact,self.flow,d_tdt,d_kappa)
 
                 #calculate probabilities at chain ends (create, destroy, or shuffle at ends)
                 ensemble_kernel.calc_probs_chainends[blockspergrid, threadsperblock, stream2](d_Z,d_QN,d_shift_probs,self.input_data['CD_flag'],
-                                                                                             d_CD_create_prefact,self.input_data['beta'],self.input_data['NK'])
+                                                                                    d_CD_create_prefact,self.input_data['beta'],self.input_data['NK'])
                 stream2.synchronize()
 
                 #control chain time and stress calculation
-                ensemble_kernel.chain_control_kernel[blockspergrid, threadsperblock, stream3](d_Z,d_QN,d_chain_time,d_stress,d_reach_flag,next_sync_time,
-                                                                                              max_sync_time,d_write_time,time_resolution)
+                ensemble_kernel.chain_control_kernel[blockspergrid, threadsperblock, stream3](d_Z,d_QN,d_chain_time,d_stress,d_reach_flag,
+                                                                                              next_sync_time,max_sync_time,d_write_time,time_resolution)
                 
                 #find jump type and location
                 ensemble_kernel.scan_kernel[blockspergrid, threadsperblock,stream1](d_Z, d_shift_probs, d_sum_W_sorted, d_uniform_rand, d_rand_used, 
-                                                                                     d_found_index, d_found_shift,d_add_rand, self.input_data['CD_flag'])
+                                                                                    d_found_index, d_found_shift,d_add_rand, self.input_data['CD_flag'])
                 
                 #if chain has reached its sync time, set reach_flag of chain to 1
                 reach_flag_host = d_reach_flag.copy_to_host(stream=stream3)
@@ -381,6 +399,7 @@ class FSM_LINEAR(object):
 
                 #find which chains create slip link (from SD or CD) so that shifted arrays can be stored
                 found_shift_SDCD = d_found_shift.copy_to_host(stream=stream1)
+                stream1.synchronize()
                 shared_size = np.argwhere((found_shift_SDCD==6) | (found_shift_SDCD==4))
                 create_SDCD_chains = np.ones(shape=chain.QN.shape[0],dtype=int)*-1
                 for j in range(0,len(shared_size)):
@@ -482,59 +501,60 @@ class FSM_LINEAR(object):
         self.save_distributions('final',QN_final,Z_final)
         
         
-        #read in stress files for stress autocorrelation function
-        print("Loading stress data for G(t) calculation...",end="",flush=True)
-        
-        stress_array = np.loadtxt(self.stress_output,delimiter=',',skiprows=1) #load stress file
-        time_array = stress_array[0:,0] # tau_K values
-        sampf = 1/(time_array[1]-time_array[0]) #normalize time by smallest resolution
-        stress = np.array(np.reshape(stress_array[0:,1:],(len(time_array),self.input_data['Nchains']))) #reshape stress array
-        print("Done.")
-        
-        #calculate stress correlation of each chain and average
-        print("Calculating G(t), this may take some time...",end="",flush=True)
-        
-        #parameters for block transformation
-        p = 8
-        m = 2
-        uplim=int(math.floor(np.log(len(time_array)/p)/np.log(m)))
-        
-        #counter for initializing final array size
-        count = 0
-        for _ in range(1,p*m):
-            count+=1
-        for l in range(1,int(uplim)):
-            for _ in range(p*m**l,p*m**(l+1),m**l):
+        if not self.flow:
+            #read in stress files for stress autocorrelation function
+            print("Loading stress data for G(t) calculation...",end="",flush=True)
+
+            stress_array = np.loadtxt(self.stress_output,delimiter=',',skiprows=1) #load stress file
+            time_array = stress_array[0:,0] # tau_K values
+            sampf = 1/(time_array[1]-time_array[0]) #normalize time by smallest resolution
+            stress = np.array(np.reshape(stress_array[0:,1:],(len(time_array),self.input_data['Nchains']))) #reshape stress array
+            print("Done.")
+
+            #calculate stress correlation of each chain and average
+            print("Calculating G(t), this may take some time...",end="",flush=True)
+
+            #parameters for block transformation
+            p = 8
+            m = 2
+            uplim=int(math.floor(np.log(len(time_array)/p)/np.log(m)))
+
+            #counter for initializing final array size
+            count = 0
+            for _ in range(1,p*m):
                 count+=1
+            for l in range(1,int(uplim)):
+                for _ in range(p*m**l,p*m**(l+1),m**l):
+                    count+=1
 
-        #initialize arrays for output
-        time_corr = np.zeros(count,dtype=float) #array to hold correlated times (log scale) 
-        stress_corr = np.zeros(shape=(self.input_data['Nchains'],count,2),dtype=float) #hold average chain stress correlations 
-        corr_array =np.zeros(stress.shape,dtype=float) #array to store correlation values for averaging (single chain)
-        
-        #transfer to device
-        d_time = cuda.to_device(time_corr)
-        d_stress_corr = cuda.to_device(stress_corr)
-        d_stress = cuda.to_device(stress)
-        d_corr_array = cuda.to_device(corr_array)
-        
-        #run the block transformation and calculate stress autocorrelation with error
-        stress_acf.stress_sample[blockspergrid,threadsperblock](d_stress,sampf,uplim,d_time,d_stress_corr,d_corr_array)
-        
-        #copy results to host and calculate average over all chains
-        time_array = d_time.copy_to_host().astype(int) 
-        stress_corr_final = d_stress_corr.copy_to_host()
-        average_corr = np.mean(stress_corr_final[:,:,0],axis=0) #average stress correlation
-        average_err = np.sum(stress_corr_final[:,:,1],axis=0)/(self.input_data['Nchains']*np.sqrt(self.input_data['Nchains'])) #error propagation
+            #initialize arrays for output
+            time_corr = np.zeros(count,dtype=float) #array to hold correlated times (log scale) 
+            stress_corr = np.zeros(shape=(self.input_data['Nchains'],count,2),dtype=float) #hold average chain stress correlations 
+            corr_array =np.zeros(stress.shape,dtype=float) #array to store correlation values for averaging (single chain)
 
-        #make combined result array and write to file
-        with open('./DSM_results/Gt_result_%d.txt'%self.sim_ID, "w") as f:
-            f.write('time, G(t), Error\n')
-            for m in range(0,len(time_array)):
-                    f.write("%d, %.4f, %.4f \n"%(time_array[m],average_corr[m],average_err[m]))
-            
-        print('Done.')
-        print('G(t) results written to Gt_result_%d.txt'%self.sim_ID)
+            #transfer to device
+            d_time = cuda.to_device(time_corr)
+            d_stress_corr = cuda.to_device(stress_corr)
+            d_stress = cuda.to_device(stress)
+            d_corr_array = cuda.to_device(corr_array)
+
+            #run the block transformation and calculate stress autocorrelation with error
+            stress_acf.stress_sample[blockspergrid,threadsperblock](d_stress,sampf,uplim,d_time,d_stress_corr,d_corr_array)
+
+            #copy results to host and calculate average over all chains
+            time_array = d_time.copy_to_host().astype(int) 
+            stress_corr_final = d_stress_corr.copy_to_host()
+            average_corr = np.mean(stress_corr_final[:,:,0],axis=0) #average stress correlation
+            average_err = np.sum(stress_corr_final[:,:,1],axis=0)/(self.input_data['Nchains']*np.sqrt(self.input_data['Nchains'])) #error propagation
+
+            #make combined result array and write to file
+            with open('./DSM_results/Gt_result_%d.txt'%self.sim_ID, "w") as f:
+                f.write('time, G(t), Error\n')
+                for m in range(0,len(time_array)):
+                        f.write("%d, %.4f, %.4f \n"%(time_array[m],average_corr[m],average_err[m]))
+
+            print('Done.')
+            print('G(t) results written to Gt_result_%d.txt'%self.sim_ID)
         
 if __name__ == "__main__":
     run_dsm = FSM_LINEAR(1)

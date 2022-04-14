@@ -120,22 +120,26 @@ class FSM_LINEAR(object):
         else:
             time_index = 1
         
+        #set time array depending on num_sync
         time_resolution = self.input_data['tau_K']
         time_array = np.arange(self.old_sync_time,time+0.5,time_resolution)
         time_array = np.reshape(time_array[time_index:],(1,len(time_array[time_index:])))
         
+        #if flow, take average stress tensor over all chains, otherwise write out only tau_xy stress of all chains
         if self.flow:
-            stress = np.mean(stress_array[:,time_index:,:],axis=0)
-            stress = np.reshape(stress,(6,len(stress[:,0])))
+            stress = [np.mean(stress_array[:,time_index:,i],axis=0).reshape(1,len(time_array[0])) for i in range(0,6)]
+            stress = np.reshape(stress,(6,len(time_array[0])))
         else:
+            #index [:,:,3] is tau_xy in stress_array
             stress = np.reshape(stress_array[:,time_index:,3],(self.input_data['Nchains'],len(stress_array[0,time_index:,3])))    
-            
-        #combined = np.hstack((time_array.T,avg_stress, stdev_stress))
+        
+        #combine array for output
         combined = np.hstack((time_array.T, stress.T))
         
         with open(self.stress_output, "a") as f:
             np.savetxt(f, combined, delimiter=',', fmt='%.8f')
-
+        
+        #keeping track of the last simulation time for beginning of next array
         self.old_sync_time = time
         
         return 
@@ -384,7 +388,7 @@ class FSM_LINEAR(object):
                 stream2.synchronize()
 
                 #control chain time and stress calculation
-                ensemble_kernel.chain_control_kernel[blockspergrid, threadsperblock, stream3](d_Z,d_QN,d_chain_time,d_stress,d_reach_flag,
+                ensemble_kernel.chain_control_kernel[blockspergrid, threadsperblock, stream3](d_Z,d_QN,d_chain_time,d_tdt,d_stress,d_reach_flag,
                                                                                               next_sync_time,max_sync_time,d_write_time,time_resolution)
                 
                 #find jump type and location

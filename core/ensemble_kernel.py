@@ -220,7 +220,7 @@ def scan_kernel(Z,shift_probs,sum_W_sorted,uniform_rand,rand_used,found_index,fo
 
 
 @cuda.jit
-def chain_control_kernel(Z,QN,chain_time,stress,reach_flag,next_sync_time,max_sync_time,write_time,time_resolution):
+def chain_control_kernel(Z,QN,chain_time,tdt,stress,reach_flag,next_sync_time,max_sync_time,write_time,time_resolution):
     
     
     i = cuda.blockIdx.x*cuda.blockDim.x + cuda.threadIdx.x #chain index
@@ -236,6 +236,7 @@ def chain_control_kernel(Z,QN,chain_time,stress,reach_flag,next_sync_time,max_sy
         
         #if sync time is reached and stress was recorded, set reach flag to 1
         reach_flag[i] = 1
+        tdt[i] = 0.0
         
         return
         

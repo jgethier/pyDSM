@@ -127,7 +127,7 @@ class FSM_LINEAR(object):
         
         #if flow, take average stress tensor over all chains, otherwise write out only tau_xy stress of all chains
         if self.flow:
-            stress = [np.mean(stress_array[:,time_index:,i],axis=0).reshape(1,len(time_array[0])) for i in range(0,6)]
+            stress = np.array([np.mean(stress_array[:,time_index:,i],axis=0) for i in range(0,6)])
             stress = np.reshape(stress,(6,len(time_array[0])))
         else:
             #index [:,:,3] is tau_xy in stress_array
@@ -238,11 +238,11 @@ class FSM_LINEAR(object):
         if np.any(np.array(self.input_data['kappa'])!=0.0):
             print("")
             print("Strain tensor is non-zero. Simulating polymers in flow...")
-            d_kappa = cuda.to_device(self.input_data['kappa'])
+            d_kappa = cuda.to_device(np.array(self.input_data['kappa'],dtype=float))
             self.flow = True
         else:
             self.flow = False
-            d_kappa = cuda.to_device(self.input_data['kappa'])
+            #d_kappa = cuda.to_device(self.input_data['kappa'])
         
         #reshape arrays for CUDA kernels
         chain.QN = chain.QN.reshape(self.input_data['Nchains'],self.input_data['NK'],4)
@@ -378,9 +378,12 @@ class FSM_LINEAR(object):
             
             while not reach_flag_all:
                 
+                if self.flow:
+                    ensemble_kernel.apply_flow[blockspergrid,threadsperblock,stream1](d_Z,d_QN,d_tdt,d_kappa)
+                
                 #calculate Kun step shuffle probabilities
                 ensemble_kernel.calc_probs_shuffle[dimGrid, dimBlock, stream1](d_Z,d_QN,d_tau_CD,d_shift_probs,self.input_data['CD_flag'],
-                                                                               d_CD_create_prefact,self.flow,d_tdt,d_kappa)
+                                                                               d_CD_create_prefact)
 
                 #calculate probabilities at chain ends (create, destroy, or shuffle at ends)
                 ensemble_kernel.calc_probs_chainends[blockspergrid, threadsperblock, stream2](d_Z,d_QN,d_shift_probs,self.input_data['CD_flag'],

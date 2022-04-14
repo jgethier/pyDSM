@@ -1,7 +1,7 @@
 import numpy as np
 import math
 from numba import cuda
-from numba import boolean
+
     
 
 @cuda.jit(device=True)
@@ -13,10 +13,19 @@ def apply_strain(i,j,QN,dt,kappa):
     Q[2] = Q[2] + dt*kappa[6]*Q[0] + dt*kappa[7]*Q[1] + dt*kappa[8]*Q[2]
     Q[3] = Q[3]
     
-    return
+    return 
 
 @cuda.jit
-def calc_probs_shuffle(Z,QN,tau_CD,shift_probs,CD_flag,CD_create_prefact,flow,dt,kappa):
+def apply_flow(Z,QN,dt,kappa):
+    i = cuda.blockIdx.x*cuda.blockDim.x + cuda.threadIdx.x
+    
+    for j in range(0,int(Z[i])):
+        apply_strain(i,j,QN,dt[i],kappa)
+    
+    return
+        
+@cuda.jit
+def calc_probs_shuffle(Z,QN,tau_CD,shift_probs,CD_flag,CD_create_prefact):
 
     i = cuda.blockIdx.x*cuda.blockDim.x + cuda.threadIdx.x #chain index
     j = cuda.blockIdx.y*cuda.blockDim.y + cuda.threadIdx.y #strand index
@@ -32,15 +41,11 @@ def calc_probs_shuffle(Z,QN,tau_CD,shift_probs,CD_flag,CD_create_prefact,flow,dt
     shift_probs[i,j,0] = shift_probs[i,j,1] = shift_probs[i,j,2] = shift_probs[i,j,3] = 0
 
     tcd = tau_CD[i,j]
-
-    if bool(flow):
-        apply_strain(i,j,QN,dt[i],kappa)
-        cuda.syncthreads()
     
     QN_i = QN[i, j, :]
     
     if j<tz-1:
-
+        
         QN_ip1 = QN[i, j+1, :]
             
         Q_i = QN_i[0]**2 + QN_i[1]**2 + QN_i[2]**2
@@ -88,8 +93,8 @@ def calc_probs_shuffle(Z,QN,tau_CD,shift_probs,CD_flag,CD_create_prefact,flow,dt
         if CD_flag==1:
                 shift_probs[i, j, 2] = int(1e6*tcd)
                 shift_probs[i, j, 3] = int(1e6*CD_create_prefact[0]*(QN_i[3]-1.0))
-    
-        return
+                
+    return
 
 
 @cuda.jit
@@ -101,7 +106,7 @@ def calc_probs_chainends(Z, QN, shift_probs, CD_flag, CD_create_prefact, beta, N
         return
 
     tz = int(Z[i])
-
+    
     QNfirst = QN[i,0]
     QNlast = QN[i,tz-1]
     
@@ -251,7 +256,7 @@ def chain_control_kernel(Z,QN,chain_time,tdt,stress,reach_flag,next_sync_time,ma
         
         tz = int(Z[i])
         
-        for j in range(1,tz-1):
+        for j in range(0,tz):
             
             sum_stress_xx -= (3.0*QN[i,j,0]*QN[i,j,0] / QN[i,j,3]) #tau_xx
             sum_stress_yy -= (3.0*QN[i,j,1]*QN[i,j,1] / QN[i,j,3]) #tau_yy

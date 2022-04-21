@@ -11,12 +11,46 @@ def apply_strain(Q,dt,kappa):
 
 @cuda.jit
 def apply_flow(Z,QN,dt,kappa):
-    i = cuda.blockIdx.x*cuda.blockDim.x + cuda.threadIdx.x
+    i = cuda.blockIdx.x*cuda.blockDim.x + cuda.threadIdx.x #chain index
+    j = cuda.blockIdx.y*cuda.blockDim.y + cuda.threadIdx.y #strand index
+
+    if i >= QN.shape[0]:
+        return
+
+    tz = int(Z[i])
+
+    if j >= tz:
+        return
     
     tdt = dt[i]
+    Q = QN[i,j,:]
+    QN[i,j,:] = apply_strain(Q,tdt,kappa)
+    
+    return
+
+@cuda.jit
+def calc_flow_stress(Z,QN,stress):
+    
+    i = cuda.blockIdx.x*cuda.blockDim.x + cuda.threadIdx.x #chain index
+    
+    if i >= QN.shape[0]:
+        return 
+    
+    stress_xx = stress_yy = stress_zz = stress_xy = stress_yz = stress_xz = 0.0
     for j in range(0,int(Z[i])):
-        Q = QN[i,j,:]
-        QN[i,j,:] = apply_strain(Q,tdt,kappa)
+        stress_xx -= (3.0*QN[i,j,0]*QN[i,j,0] / QN[i,j,3]) #tau_xx
+        stress_yy -= (3.0*QN[i,j,1]*QN[i,j,1] / QN[i,j,3]) #tau_yy
+        stress_zz -= (3.0*QN[i,j,2]*QN[i,j,2] / QN[i,j,3]) #tau_zz
+        stress_xy -= (3.0*QN[i,j,0]*QN[i,j,1] / QN[i,j,3]) #tau_xy
+        stress_yz -= (3.0*QN[i,j,1]*QN[i,j,2] / QN[i,j,3]) #tau_yz
+        stress_xz -= (3.0*QN[i,j,0]*QN[i,j,2] / QN[i,j,3]) #tau_xz
+    
+    stress[i,0,0] = stress_xx
+    stress[i,0,1] = stress_yy
+    stress[i,0,2] = stress_zz
+    stress[i,0,3] = stress_xy
+    stress[i,0,4] = stress_yz
+    stress[i,0,5] = stress_xz
     
     return
         
@@ -233,7 +267,7 @@ def chain_control_kernel(Z,QN,chain_time,tdt,stress,flow,reach_flag,next_sync_ti
         return
     
     
-    if (chain_time[i] >= next_sync_time) and chain_time[i] <= (write_time[i]*time_resolution):
+    if (chain_time[i] >= next_sync_time) and next_sync_time <= (write_time[i]*time_resolution):
         
         #if sync time is reached and stress was recorded, set reach flag to 1
         reach_flag[i] = 1
@@ -243,36 +277,20 @@ def chain_control_kernel(Z,QN,chain_time,tdt,stress,flow,reach_flag,next_sync_ti
         
     if (chain_time[i] > write_time[i]*time_resolution): #if chain time reaches next time to record stress (every time_resolution)
         
-        sum_stress_xx = sum_stress_yy = sum_stress_zz = sum_stress_xy = sum_stress_yz = sum_stress_xz = 0.0
+        if not flow:
+            stress_xy = 0.0
 
-        if int((chain_time[i]%max_sync_time)/time_resolution)==0 and write_time[i] != 0:
-            arr_index = int(max_sync_time/time_resolution)
-        else:
-            arr_index = int((chain_time[i]%max_sync_time)/time_resolution)  
-        
-        tz = int(Z[i])
-        
-        for j in range(0,tz):
-            
-            if flow:
-                sum_stress_xx -= (3.0*QN[i,j,0]*QN[i,j,0] / QN[i,j,3]) #tau_xx
-                sum_stress_yy -= (3.0*QN[i,j,1]*QN[i,j,1] / QN[i,j,3]) #tau_yy
-                sum_stress_zz -= (3.0*QN[i,j,2]*QN[i,j,2] / QN[i,j,3]) #tau_zz
-                sum_stress_xy -= (3.0*QN[i,j,0]*QN[i,j,1] / QN[i,j,3]) #tau_xy
-                sum_stress_yz -= (3.0*QN[i,j,1]*QN[i,j,2] / QN[i,j,3]) #tau_yz
-                sum_stress_xz -= (3.0*QN[i,j,0]*QN[i,j,2] / QN[i,j,3]) #tau_xz
+            if int((chain_time[i]%max_sync_time)/time_resolution)==0 and write_time[i] != 0:
+                arr_index = int(max_sync_time/time_resolution)
             else:
-                sum_stress_xy -= (3.0*QN[i,j,0]*QN[i,j,1] / QN[i,j,3]) #tau_xy
-        
-        if flow:
-            stress[i,arr_index,0] = sum_stress_xx
-            stress[i,arr_index,1] = sum_stress_yy
-            stress[i,arr_index,2] = sum_stress_zz
-            stress[i,arr_index,3] = sum_stress_xy
-            stress[i,arr_index,4] = sum_stress_yz
-            stress[i,arr_index,5] = sum_stress_xz
-        else:
-            stress[i,arr_index,0] = sum_stress_xy
+                arr_index = int((chain_time[i]%max_sync_time)/time_resolution)  
+
+            tz = int(Z[i])
+
+            for j in range(0,tz):
+                stress_xy -= (3.0*QN[i,j,0]*QN[i,j,1] / QN[i,j,3]) #tau_xy
+
+            stress[i,arr_index,0] = stress_xy
         
         write_time[i]+=1
         

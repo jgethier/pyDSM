@@ -127,8 +127,9 @@ class FSM_LINEAR(object):
         
         #if flow, take average stress tensor over all chains, otherwise write out only tau_xy stress of all chains
         if self.flow:
-            stress = np.array([np.mean(stress_array[:,time_index:,i],axis=0) for i in range(0,6)])
-            stress = np.reshape(stress,(6,len(time_array[0])))
+            stress = np.array([np.mean(stress_array[:,0,i]) for i in range(0,6)])
+            stress = np.reshape(stress,(6,1))
+            time_array = np.array([[num_sync*time_resolution]])
         else:
             stress = np.reshape(stress_array[:,time_index:,0],(self.input_data['Nchains'],len(stress_array[0,time_index:,0])))    
         
@@ -328,7 +329,10 @@ class FSM_LINEAR(object):
         
         #initialize some time constants used for simulation and calculate number of time syncs based on sync time resolution
         step_count = 0
-        max_sync_time = 100 #arbitrary, just setting every chain to sync at t = 100
+        if self.flow:
+            max_sync_time = self.input_data['tau_K']
+        else:
+            max_sync_time = 100 #arbitrary, just setting every chain to sync at t = 100
         num_time_syncs = int(math.floor(self.input_data['sim_time'] / max_sync_time))
         
         #set grid dimensions
@@ -369,18 +373,20 @@ class FSM_LINEAR(object):
             #initialize flags for chain sync (if chain times reach the sync time, flag goes up)
             reach_flag_all = False
             reach_flag = np.zeros(shape=self.input_data['Nchains'],dtype=int)
-            d_reach_flag = cuda.to_device(reach_flag,stream=stream3)  
+            d_reach_flag = cuda.to_device(reach_flag)  
             
             #initialize stress array
             if self.flow:
-                stress = np.zeros(shape=(chain.QN.shape[0],int(max_sync_time/time_resolution)+1,6),dtype=float)
+                stress = np.zeros(shape=(chain.QN.shape[0],1,6),dtype=float)
             else:
                 stress = np.zeros(shape=(chain.QN.shape[0],int(max_sync_time/time_resolution)+1,1),dtype=float)
-            d_stress = cuda.to_device(stress,stream=stream3)
-            
-            stream3.synchronize()
+            d_stress = cuda.to_device(stress)
             
             while not reach_flag_all:
+                
+                if self.flow:
+                    ensemble_kernel.apply_flow[dimGrid, dimBlock,stream1](d_Z,d_QN,d_tdt,d_kappa)
+                    stream1.synchronize()
                 
                 #calculate Kun step shuffle probabilities
                 ensemble_kernel.calc_probs_shuffle[dimGrid, dimBlock, stream1](d_Z,d_QN,d_tau_CD,d_shift_probs,self.input_data['CD_flag'],
@@ -424,6 +430,7 @@ class FSM_LINEAR(object):
                 d_new_t_cr = cuda.to_device(new_t_cr,stream=stream1)
                 d_new_tau_CD = cuda.to_device(new_tau_CD,stream=stream1)
                 
+                stream1.synchronize()
                 
                 #apply jump move for each chain and update time of chain
                 ensemble_kernel.chain_kernel[blockspergrid,threadsperblock,stream1](d_Z, d_QN, d_create_SDCD_chains, d_QN_create_SDCD,
@@ -433,11 +440,9 @@ class FSM_LINEAR(object):
                                                                                     d_rand_used, d_add_rand, d_tau_CD_used_SD,
                                                                                     d_tau_CD_used_CD,d_tau_CD_gauss_rand_SD,
                                                                                     d_tau_CD_gauss_rand_CD)
-                
-                if self.flow:
-                    ensemble_kernel.apply_flow[blockspergrid,threadsperblock,stream1](d_Z,d_QN,d_tdt,d_kappa)
                     
-                stream1.synchronize()                   
+                stream1.synchronize()
+                stream3.synchronize()
                 
                 #check if all chains reached time for sync
                 sum_reach_flags = 0 
@@ -480,6 +485,8 @@ class FSM_LINEAR(object):
             
 
             #write stress of all chains to file
+            if self.flow:
+                ensemble_kernel.calc_flow_stress[blockspergrid,threadsperblock](d_Z,d_QN,d_stress)
             stress_host = d_stress.copy_to_host()
             self.write_stress(x_sync,next_sync_time,stress_host)
             

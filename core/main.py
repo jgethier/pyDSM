@@ -331,8 +331,12 @@ class FSM_LINEAR(object):
         step_count = 0
         if self.flow:
             max_sync_time = self.input_data['tau_K']
+            stress = np.zeros(shape=(chain.QN.shape[0],1,6),dtype=float) #initialize stress array
         else:
             max_sync_time = 100 #arbitrary, just setting every chain to sync at t = 100
+            stress = np.zeros(shape=(chain.QN.shape[0],int(max_sync_time/time_resolution)+1,1),dtype=float) #initialize stress array
+        
+        d_stress = cuda.to_device(stress)
         num_time_syncs = int(math.floor(self.input_data['sim_time'] / max_sync_time))
         
         #set grid dimensions
@@ -375,15 +379,8 @@ class FSM_LINEAR(object):
             reach_flag = np.zeros(shape=self.input_data['Nchains'],dtype=int)
             d_reach_flag = cuda.to_device(reach_flag)  
             
-            #initialize stress array
-            if self.flow:
-                stress = np.zeros(shape=(chain.QN.shape[0],1,6),dtype=float)
-            else:
-                stress = np.zeros(shape=(chain.QN.shape[0],int(max_sync_time/time_resolution)+1,1),dtype=float)
-            d_stress = cuda.to_device(stress)
-            
             while not reach_flag_all:
-                
+
                 if self.flow:
                     ensemble_kernel.apply_flow[dimGrid, dimBlock,stream1](d_Z,d_QN,d_tdt,d_kappa)
                     stream1.synchronize()

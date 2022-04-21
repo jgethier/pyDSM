@@ -130,8 +130,7 @@ class FSM_LINEAR(object):
             stress = np.array([np.mean(stress_array[:,time_index:,i],axis=0) for i in range(0,6)])
             stress = np.reshape(stress,(6,len(time_array[0])))
         else:
-            #index [:,:,3] is tau_xy in stress_array
-            stress = np.reshape(stress_array[:,time_index:,3],(self.input_data['Nchains'],len(stress_array[0,time_index:,3])))    
+            stress = np.reshape(stress_array[:,time_index:,0],(self.input_data['Nchains'],len(stress_array[0,time_index:,0])))    
         
         #combine array for output
         combined = np.hstack((time_array.T, stress.T))
@@ -242,7 +241,7 @@ class FSM_LINEAR(object):
             self.flow = True
         else:
             self.flow = False
-            #d_kappa = cuda.to_device(self.input_data['kappa'])
+            d_kappa = cuda.to_device(self.input_data['kappa'])
         
         #reshape arrays for CUDA kernels
         chain.QN = chain.QN.reshape(self.input_data['Nchains'],self.input_data['NK'],4)
@@ -258,7 +257,7 @@ class FSM_LINEAR(object):
         #initialize arrays for finding jump index
         found_index = np.zeros(shape=(chain.QN.shape[0]),dtype=int)
         found_shift = np.zeros(shape=(chain.QN.shape[0]),dtype=int)
-        sum_W_sorted = np.zeros(shape=(chain.QN.shape[0]),dtype=int)
+        sum_W_sorted = np.zeros(shape=(chain.QN.shape[0]),dtype=float)
         shift_probs = np.zeros(shape=(chain.QN.shape[0],chain.QN.shape[1]+1,4),dtype=int)
         
         #intitialize arrays for random numbers used
@@ -323,7 +322,6 @@ class FSM_LINEAR(object):
         d_tau_CD_used_SD=cuda.to_device(tau_CD_used_SD)
         d_tau_CD_used_CD=cuda.to_device(tau_CD_used_CD)
         
-
         #set timesteps and begin simulation
         simulation_time = self.input_data['sim_time']
         enttime_bins = np.zeros(shape=(20000),dtype=int)
@@ -357,6 +355,9 @@ class FSM_LINEAR(object):
         #timer start
         t0 = time.time()
         
+        #start progress bar
+        self.progbar(0,num_time_syncs,20)
+        
         #start loop over number of time syncs
         for x_sync in range(1,num_time_syncs+1):
             
@@ -371,27 +372,27 @@ class FSM_LINEAR(object):
             d_reach_flag = cuda.to_device(reach_flag,stream=stream3)  
             
             #initialize stress array
-            stress = np.zeros(shape=(chain.QN.shape[0],int(max_sync_time/time_resolution)+1,6),dtype=float)
+            if self.flow:
+                stress = np.zeros(shape=(chain.QN.shape[0],int(max_sync_time/time_resolution)+1,6),dtype=float)
+            else:
+                stress = np.zeros(shape=(chain.QN.shape[0],int(max_sync_time/time_resolution)+1,1),dtype=float)
             d_stress = cuda.to_device(stress,stream=stream3)
             
             stream3.synchronize()
             
             while not reach_flag_all:
                 
-                if self.flow:
-                    ensemble_kernel.apply_flow[blockspergrid,threadsperblock,stream1](d_Z,d_QN,d_tdt,d_kappa)
-                
                 #calculate Kun step shuffle probabilities
                 ensemble_kernel.calc_probs_shuffle[dimGrid, dimBlock, stream1](d_Z,d_QN,d_tau_CD,d_shift_probs,self.input_data['CD_flag'],
                                                                                d_CD_create_prefact)
-
+                
                 #calculate probabilities at chain ends (create, destroy, or shuffle at ends)
                 ensemble_kernel.calc_probs_chainends[blockspergrid, threadsperblock, stream2](d_Z,d_QN,d_shift_probs,self.input_data['CD_flag'],
                                                                                     d_CD_create_prefact,self.input_data['beta'],self.input_data['NK'])
                 stream2.synchronize()
 
                 #control chain time and stress calculation
-                ensemble_kernel.chain_control_kernel[blockspergrid, threadsperblock, stream3](d_Z,d_QN,d_chain_time,d_tdt,d_stress,d_reach_flag,
+                ensemble_kernel.chain_control_kernel[blockspergrid, threadsperblock, stream3](d_Z,d_QN,d_chain_time,d_tdt,d_stress,self.flow,d_reach_flag,
                                                                                               next_sync_time,max_sync_time,d_write_time,time_resolution)
                 
                 #find jump type and location
@@ -424,7 +425,6 @@ class FSM_LINEAR(object):
                 d_new_tau_CD = cuda.to_device(new_tau_CD,stream=stream1)
                 
                 
-                
                 #apply jump move for each chain and update time of chain
                 ensemble_kernel.chain_kernel[blockspergrid,threadsperblock,stream1](d_Z, d_QN, d_create_SDCD_chains, d_QN_create_SDCD,
                                                                                     d_chain_time,d_time_compensation,
@@ -434,8 +434,10 @@ class FSM_LINEAR(object):
                                                                                     d_tau_CD_used_CD,d_tau_CD_gauss_rand_SD,
                                                                                     d_tau_CD_gauss_rand_CD)
                 
-                stream1.synchronize()                   
+                if self.flow:
+                    ensemble_kernel.apply_flow[blockspergrid,threadsperblock,stream1](d_Z,d_QN,d_tdt,d_kappa)
                     
+                stream1.synchronize()                   
                 
                 #check if all chains reached time for sync
                 sum_reach_flags = 0 

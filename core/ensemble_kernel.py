@@ -5,22 +5,18 @@ from numba import cuda
     
 
 @cuda.jit(device=True)
-def apply_strain(i,j,QN,dt,kappa):
+def apply_strain(Q,dt,kappa):
     
-    Q = QN[i,j,:]
-    Q[0] = Q[0] + dt*kappa[0]*Q[0] + dt*kappa[1]*Q[1] + dt*kappa[2]*Q[2]
-    Q[1] = Q[1] + dt*kappa[3]*Q[0] + dt*kappa[4]*Q[1] + dt*kappa[5]*Q[2]
-    Q[2] = Q[2] + dt*kappa[6]*Q[0] + dt*kappa[7]*Q[1] + dt*kappa[8]*Q[2]
-    Q[3] = Q[3]
-    
-    return 
+    return Q[0] + dt*kappa[0]*Q[0] + dt*kappa[1]*Q[1] + dt*kappa[2]*Q[2], Q[1] + dt*kappa[3]*Q[0] + dt*kappa[4]*Q[1] + dt*kappa[5]*Q[2], Q[2] + dt*kappa[6]*Q[0] + dt*kappa[7]*Q[1] + dt*kappa[8]*Q[2], Q[3]
 
 @cuda.jit
 def apply_flow(Z,QN,dt,kappa):
     i = cuda.blockIdx.x*cuda.blockDim.x + cuda.threadIdx.x
     
+    tdt = dt[i]
     for j in range(0,int(Z[i])):
-        apply_strain(i,j,QN,dt[i],kappa)
+        Q = QN[i,j,:]
+        QN[i,j,:] = apply_strain(Q,tdt,kappa)
     
     return
         
@@ -167,7 +163,7 @@ def scan_kernel(Z,shift_probs,sum_W_sorted,uniform_rand,rand_used,found_index,fo
         else:
             sum1 += (temp[0] + temp[1])
                 
-    sum_W_sorted[i] = sum1
+    sum_W_sorted[i] = float(sum1)/1e6
     x = int(math.ceil(sum1*uniform_rand[i,int(rand_used[i])]))
     
     xFound = yFound = zFound = wFound = False
@@ -225,7 +221,7 @@ def scan_kernel(Z,shift_probs,sum_W_sorted,uniform_rand,rand_used,found_index,fo
 
 
 @cuda.jit
-def chain_control_kernel(Z,QN,chain_time,tdt,stress,reach_flag,next_sync_time,max_sync_time,write_time,time_resolution):
+def chain_control_kernel(Z,QN,chain_time,tdt,stress,flow,reach_flag,next_sync_time,max_sync_time,write_time,time_resolution):
     
     
     i = cuda.blockIdx.x*cuda.blockDim.x + cuda.threadIdx.x #chain index
@@ -258,19 +254,25 @@ def chain_control_kernel(Z,QN,chain_time,tdt,stress,reach_flag,next_sync_time,ma
         
         for j in range(0,tz):
             
-            sum_stress_xx -= (3.0*QN[i,j,0]*QN[i,j,0] / QN[i,j,3]) #tau_xx
-            sum_stress_yy -= (3.0*QN[i,j,1]*QN[i,j,1] / QN[i,j,3]) #tau_yy
-            sum_stress_zz -= (3.0*QN[i,j,2]*QN[i,j,2] / QN[i,j,3]) #tau_zz
-            sum_stress_xy -= (3.0*QN[i,j,0]*QN[i,j,1] / QN[i,j,3]) #tau_xy
-            sum_stress_yz -= (3.0*QN[i,j,1]*QN[i,j,2] / QN[i,j,3]) #tau_yz
-            sum_stress_xz -= (3.0*QN[i,j,0]*QN[i,j,2] / QN[i,j,3]) #tau_xz
+            if flow:
+                sum_stress_xx -= (3.0*QN[i,j,0]*QN[i,j,0] / QN[i,j,3]) #tau_xx
+                sum_stress_yy -= (3.0*QN[i,j,1]*QN[i,j,1] / QN[i,j,3]) #tau_yy
+                sum_stress_zz -= (3.0*QN[i,j,2]*QN[i,j,2] / QN[i,j,3]) #tau_zz
+                sum_stress_xy -= (3.0*QN[i,j,0]*QN[i,j,1] / QN[i,j,3]) #tau_xy
+                sum_stress_yz -= (3.0*QN[i,j,1]*QN[i,j,2] / QN[i,j,3]) #tau_yz
+                sum_stress_xz -= (3.0*QN[i,j,0]*QN[i,j,2] / QN[i,j,3]) #tau_xz
+            else:
+                sum_stress_xy -= (3.0*QN[i,j,0]*QN[i,j,1] / QN[i,j,3]) #tau_xy
         
-        stress[i,arr_index,0] = sum_stress_xx
-        stress[i,arr_index,1] = sum_stress_yy
-        stress[i,arr_index,2] = sum_stress_zz
-        stress[i,arr_index,3] = sum_stress_xy
-        stress[i,arr_index,4] = sum_stress_yz
-        stress[i,arr_index,5] = sum_stress_xz
+        if flow:
+            stress[i,arr_index,0] = sum_stress_xx
+            stress[i,arr_index,1] = sum_stress_yy
+            stress[i,arr_index,2] = sum_stress_zz
+            stress[i,arr_index,3] = sum_stress_xy
+            stress[i,arr_index,4] = sum_stress_yz
+            stress[i,arr_index,5] = sum_stress_xz
+        else:
+            stress[i,arr_index,0] = sum_stress_xy
         
         write_time[i]+=1
         
@@ -311,8 +313,7 @@ def chain_kernel(Z, QN, create_SDCD_chains, QN_create_SDCD, chain_time, time_com
         print('Error: timestep size is infinity for chain',i)
 
     #set time step to be length of time to make single jump
-    olddt = tdt[i]
-    tdt[i] = 1.0 / float(sum_W_sorted[i] / 1e6)   
+    tdt[i] = 1.0 / sum_W_sorted[i] 
 
     #Use Kahan summation to update time of chain
     y = tdt[i] - time_compensation[i]

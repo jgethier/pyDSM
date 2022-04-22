@@ -25,6 +25,7 @@ def apply_flow(Z,QN,dt,kappa):
     tdt = dt[i]
     Q = QN[i,j,:]
     QN[i,j,:] = apply_strain(Q,tdt,kappa)
+    cuda.syncthreads()
     
     return
 
@@ -68,7 +69,7 @@ def calc_probs_shuffle(Z,QN,tau_CD,shift_probs,CD_flag,CD_create_prefact):
     if j >= tz:
         return
     
-    shift_probs[i,j,0] = shift_probs[i,j,1] = shift_probs[i,j,2] = shift_probs[i,j,3] = 0
+    shift_probs[i,j,0] = shift_probs[i,j,1] = shift_probs[i,j,2] = shift_probs[i,j,3] = 0.0
 
     tcd = tau_CD[i,j]
     
@@ -98,7 +99,7 @@ def calc_probs_shuffle(Z,QN,tau_CD,shift_probs,CD_flag,CD_create_prefact):
                         f2 = QN_ip1[3]
                         
                 friction = 2.0 / (f1 + f2)
-                shift_probs[i, j, 0] = int(1e6*friction*math.pow(prefactor1*prefactor2,0.75)*math.exp(Q_i*sig1-Q_ip1*sig2))
+                shift_probs[i, j, 0] = friction*math.pow(prefactor1*prefactor2,0.75)*math.exp(Q_i*sig1-Q_ip1*sig2)
 
         if QN_i[3] > 1.0:
                 sig1 = 0.75 / (QN_i[3]*(QN_i[3]-1))
@@ -118,11 +119,11 @@ def calc_probs_shuffle(Z,QN,tau_CD,shift_probs,CD_flag,CD_create_prefact):
                         f2 = QN_ip1[3]
 
                 friction = 2.0 / (f1 + f2)
-                shift_probs[i, j, 1] = int(1e6*friction*math.pow(prefactor1*prefactor2,0.75)*math.exp(-Q_i*sig1+Q_ip1*sig2))
+                shift_probs[i, j, 1] = friction*math.pow(prefactor1*prefactor2,0.75)*math.exp(-Q_i*sig1+Q_ip1*sig2)
 
         if CD_flag==1:
-                shift_probs[i, j, 2] = int(1e6*tcd)
-                shift_probs[i, j, 3] = int(1e6*CD_create_prefact[0]*(QN_i[3]-1.0))
+                shift_probs[i, j, 2] = tcd
+                shift_probs[i, j, 3] = CD_create_prefact[0]*(QN_i[3]-1.0)
                 
     return
 
@@ -140,12 +141,12 @@ def calc_probs_chainends(Z, QN, shift_probs, CD_flag, CD_create_prefact, beta, N
     QNfirst = QN[i,0]
     QNlast = QN[i,tz-1]
     
-    shift_probs[i,tz,0] = shift_probs[i,tz,1] = shift_probs[i,tz,2] = shift_probs[i,tz,3] = 0
-    shift_probs[i,tz-1,0] = shift_probs[i,tz-1,1] = shift_probs[i,tz-1,2] = shift_probs[i,tz-1,3] = 0
+    shift_probs[i,tz,0] = shift_probs[i,tz,1] = shift_probs[i,tz,2] = shift_probs[i,tz,3] = 0.0
+    shift_probs[i,tz-1,0] = shift_probs[i,tz-1,1] = shift_probs[i,tz-1,2] = shift_probs[i,tz-1,3] = 0.0
 
     if tz == 1:
-        shift_probs[i,tz-1,1] = int(1e6*(1.0 / (beta*Nk)))             
-        shift_probs[i,tz,1] = int(1e6*(1.0 / (beta*Nk)))
+        shift_probs[i,tz-1,1] = (1.0 / (beta*Nk))           
+        shift_probs[i,tz,1] = (1.0 / (beta*Nk))
 
     else:
         if QNfirst[3] == 1.0: #destruction by SD at the beginning
@@ -155,10 +156,10 @@ def calc_probs_chainends(Z, QN, shift_probs, CD_flag, CD_create_prefact, beta, N
             else:
                 c = QNfirst_n[3] * 0.5
 
-            shift_probs[i,tz,0] = int(1e6*(1.0 / (c+0.75)))
+            shift_probs[i,tz,0] = (1.0 / (c+0.75))
 
         else: #creation by SD at the beginning
-            shift_probs[i,tz,1] = int(1e6*(2.0 / (beta * (QNfirst[3]+0.5) )))
+            shift_probs[i,tz,1] = (2.0 / (beta * (QNfirst[3]+0.5)))
 
         if QNlast[3] == 1.0: #destruction by SD at the end
 
@@ -167,13 +168,13 @@ def calc_probs_chainends(Z, QN, shift_probs, CD_flag, CD_create_prefact, beta, N
                 c = QNlast_p[3] + 0.25
             else:
                 c = QNlast_p[3] * 0.5
-            shift_probs[i,tz-1,0] = int(1e6*(1.0 / (c+0.75)))
+            shift_probs[i,tz-1,0] = (1.0 / (c+0.75))
             
         else: #creation by SD at the end
-            shift_probs[i,tz-1,1] = int(1e6*(2.0 / (beta * (QNlast[3]+0.5) )))
+            shift_probs[i,tz-1,1] = (2.0 / (beta * (QNlast[3]+0.5) ))
 
     if CD_flag==1:
-        shift_probs[i,tz-1,3] = int(1e6*CD_create_prefact[0]*(QNlast[3]-1.0))
+        shift_probs[i,tz-1,3] = CD_create_prefact[0]*(QNlast[3]-1.0)
 
     return
 
@@ -197,8 +198,8 @@ def scan_kernel(Z,shift_probs,sum_W_sorted,uniform_rand,rand_used,found_index,fo
         else:
             sum1 += (temp[0] + temp[1])
                 
-    sum_W_sorted[i] = float(sum1)/1e6
-    x = int(math.ceil(sum1*uniform_rand[i,int(rand_used[i])]))
+    sum_W_sorted[i] = sum1
+    x = sum1*uniform_rand[i,int(rand_used[i])]
     
     xFound = yFound = zFound = wFound = False
     sum2 = 0

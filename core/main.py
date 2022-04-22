@@ -111,7 +111,7 @@ class FSM_LINEAR(object):
         if num_sync == 1:
             with open(self.stress_output,'w') as f:
                 if self.flow:
-                    f.write('time, tau_xx, tau_yy, tau_zz, tau_xy, tau_yz, tau_xz, error_xx, error_yy, error_zz, error_xy, error_yz, error_xz\n')
+                    f.write('time, tau_xx, tau_yy, tau_zz, tau_xy, tau_yz, tau_xz\n')
                 else:
                     f.write('time, stress_1, stress_2, ..., stress_nchains\n')     
             self.old_sync_time = 0
@@ -136,9 +136,6 @@ class FSM_LINEAR(object):
         else:
             stress = np.reshape(stress_array[:,time_index:,0],(self.input_data['Nchains'],len(stress_array[0,time_index:,0])))    
             combined = np.hstack((time_array.T, stress.T))
-        
-        #combine array for output
-        #combined = np.hstack((time_array.T, stress.T))
         
         with open(self.stress_output, "a") as f:
             np.savetxt(f, combined, delimiter=',', fmt='%.8f')
@@ -263,7 +260,7 @@ class FSM_LINEAR(object):
         found_index = np.zeros(shape=(chain.QN.shape[0]),dtype=int)
         found_shift = np.zeros(shape=(chain.QN.shape[0]),dtype=int)
         sum_W_sorted = np.zeros(shape=(chain.QN.shape[0]),dtype=float)
-        shift_probs = np.zeros(shape=(chain.QN.shape[0],chain.QN.shape[1]+1,4),dtype=int)
+        shift_probs = np.zeros(shape=(chain.QN.shape[0],chain.QN.shape[1]+1,4),dtype=float)
         
         #intitialize arrays for random numbers used
         rand_used = np.zeros(shape=chain.QN.shape[0],dtype=int)
@@ -369,8 +366,8 @@ class FSM_LINEAR(object):
         
         #start progress bar
         self.progbar(0,num_time_syncs,20)
-        
-        #start loop over number of time syncs
+
+        #start loop over number of times chains are synced
         for x_sync in range(1,num_time_syncs+1):
             
             if x_sync == num_time_syncs:
@@ -384,10 +381,10 @@ class FSM_LINEAR(object):
             d_reach_flag = cuda.to_device(reach_flag)  
             
             while not reach_flag_all:
-
+                
                 if self.flow:
-                    ensemble_kernel.apply_flow[dimGrid, dimBlock,stream1](d_Z,d_QN,d_tdt,d_kappa)
-                    stream1.synchronize()
+                    ensemble_kernel.apply_flow[dimGrid, dimBlock, stream1](d_Z,d_QN,d_tdt,d_kappa)
+                    
                 
                 #calculate Kun step shuffle probabilities
                 ensemble_kernel.calc_probs_shuffle[dimGrid, dimBlock, stream1](d_Z,d_QN,d_tau_CD,d_shift_probs,self.input_data['CD_flag'],
@@ -405,6 +402,7 @@ class FSM_LINEAR(object):
                 #find jump type and location
                 ensemble_kernel.scan_kernel[blockspergrid, threadsperblock,stream1](d_Z, d_shift_probs, d_sum_W_sorted, d_uniform_rand, d_rand_used, 
                                                                                     d_found_index, d_found_shift,d_add_rand, self.input_data['CD_flag'])
+                
                 
                 #if chain has reached its sync time, set reach_flag of chain to 1
                 reach_flag_host = d_reach_flag.copy_to_host(stream=stream3)
@@ -443,7 +441,6 @@ class FSM_LINEAR(object):
                                                                                     d_tau_CD_gauss_rand_CD)
                     
                 stream1.synchronize()
-                stream3.synchronize()
                 
                 #check if all chains reached time for sync
                 sum_reach_flags = 0 

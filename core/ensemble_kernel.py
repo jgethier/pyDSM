@@ -2,32 +2,11 @@ import numpy as np
 import math
 from numba import cuda
 
-    
-
 @cuda.jit(device=True)
-def apply_strain(Q,dt,kappa):
+def apply_flow(Q,dt,kappa):
     
     return Q[0] + dt*kappa[0]*Q[0] + dt*kappa[1]*Q[1] + dt*kappa[2]*Q[2], Q[1] + dt*kappa[3]*Q[0] + dt*kappa[4]*Q[1] + dt*kappa[5]*Q[2], Q[2] + dt*kappa[6]*Q[0] + dt*kappa[7]*Q[1] + dt*kappa[8]*Q[2], Q[3]
 
-@cuda.jit
-def apply_flow(Z,QN,dt,kappa):
-    i = cuda.blockIdx.x*cuda.blockDim.x + cuda.threadIdx.x #chain index
-    j = cuda.blockIdx.y*cuda.blockDim.y + cuda.threadIdx.y #strand index
-
-    if i >= QN.shape[0]:
-        return
-
-    tz = int(Z[i])
-
-    if j >= tz:
-        return
-    
-    tdt = dt[i]
-    Q = QN[i,j,:]
-    QN[i,j,:] = apply_strain(Q,tdt,kappa)
-    cuda.syncthreads()
-    
-    return
 
 @cuda.jit
 def calc_flow_stress(Z,QN,stress):
@@ -54,9 +33,10 @@ def calc_flow_stress(Z,QN,stress):
     stress[i,0,5] = stress_xz
     
     return
+
         
 @cuda.jit
-def calc_probs_shuffle(Z,QN,tau_CD,shift_probs,CD_flag,CD_create_prefact):
+def calc_probs_shuffle(Z,QN,flow,tdt,kappa,tau_CD,shift_probs,CD_flag,CD_create_prefact):
 
     i = cuda.blockIdx.x*cuda.blockDim.x + cuda.threadIdx.x #chain index
     j = cuda.blockIdx.y*cuda.blockDim.y + cuda.threadIdx.y #strand index
@@ -74,6 +54,11 @@ def calc_probs_shuffle(Z,QN,tau_CD,shift_probs,CD_flag,CD_create_prefact):
     tcd = tau_CD[i,j]
     
     QN_i = QN[i, j, :]
+    
+    if flow:
+        dt = tdt[i]
+        QN[i,j,:] = apply_flow(QN_i,dt,kappa)
+        cuda.syncthreads()
     
     if j<tz-1:
         

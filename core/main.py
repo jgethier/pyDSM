@@ -382,13 +382,9 @@ class FSM_LINEAR(object):
             
             while not reach_flag_all:
                 
-                if self.flow:
-                    ensemble_kernel.apply_flow[dimGrid, dimBlock, stream1](d_Z,d_QN,d_tdt,d_kappa)
-                    
-                
                 #calculate Kun step shuffle probabilities
-                ensemble_kernel.calc_probs_shuffle[dimGrid, dimBlock, stream1](d_Z,d_QN,d_tau_CD,d_shift_probs,self.input_data['CD_flag'],
-                                                                               d_CD_create_prefact)
+                ensemble_kernel.calc_probs_shuffle[dimGrid, dimBlock, stream1](d_Z,d_QN,self.flow,d_tdt,d_kappa,d_tau_CD,d_shift_probs,
+                                                                               self.input_data['CD_flag'],d_CD_create_prefact)
                 
                 #calculate probabilities at chain ends (create, destroy, or shuffle at ends)
                 ensemble_kernel.calc_probs_chainends[blockspergrid, threadsperblock, stream2](d_Z,d_QN,d_shift_probs,self.input_data['CD_flag'],

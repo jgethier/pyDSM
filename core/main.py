@@ -111,7 +111,7 @@ class FSM_LINEAR(object):
         if num_sync == 1:
             with open(self.stress_output,'w') as f:
                 if self.flow:
-                    f.write('time, tau_xx, tau_yy, tau_zz, tau_xy, tau_yz, tau_xz\n')
+                    f.write('time, tau_xx, tau_yy, tau_zz, tau_xy, tau_yz, tau_xz, error_xx, error_yy, error_zz, error_xy, error_yz, error_xz\n')
                 else:
                     f.write('time, stress_1, stress_2, ..., stress_nchains\n')     
             self.old_sync_time = 0
@@ -128,13 +128,17 @@ class FSM_LINEAR(object):
         #if flow, take average stress tensor over all chains, otherwise write out only tau_xy stress of all chains
         if self.flow:
             stress = np.array([np.mean(stress_array[:,0,i]) for i in range(0,6)])
+            error = np.array([np.std(stress_array[:,0,i])/np.sqrt(self.input_data['Nchains']) for i in range(0,6)])
             stress = np.reshape(stress,(6,1))
+            error = np.reshape(error,(6,1))
             time_array = np.array([[num_sync*time_resolution]])
+            combined = np.hstack((time_array.T, stress.T, error.T))
         else:
             stress = np.reshape(stress_array[:,time_index:,0],(self.input_data['Nchains'],len(stress_array[0,time_index:,0])))    
+            combined = np.hstack((time_array.T, stress.T))
         
         #combine array for output
-        combined = np.hstack((time_array.T, stress.T))
+        #combined = np.hstack((time_array.T, stress.T))
         
         with open(self.stress_output, "a") as f:
             np.savetxt(f, combined, delimiter=',', fmt='%.8f')

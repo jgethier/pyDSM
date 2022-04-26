@@ -552,7 +552,6 @@ class FSM_LINEAR(object):
             if calc_type == 1:
                 self.write_stress(x_sync,next_sync_time,res_host)
             elif calc_type == 2:
-                print(res_host[0,:,0])
                 self.write_com(x_sync,next_sync_time,res_host)
                 
             #update progress bar

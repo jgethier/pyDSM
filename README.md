@@ -1,4 +1,4 @@
-# PyDSM
+# pyDSM
 
 Discrete Slip-link Model (DSM) for GPU in Python
 

@@ -314,6 +314,8 @@ class FSM_LINEAR(object):
         chain.QN = chain.QN.reshape(self.input_data['Nchains'],self.input_data['NK'],4)
         chain.tau_CD = chain.tau_CD.reshape(self.input_data['Nchains'],self.input_data['NK'])
         chain.Z = chain.Z.reshape(self.input_data['Nchains'])
+        QN_first = chain.QN[:,1,:3] #keep track of first entanglement for MSD
+        QN_first = np.array(QN_first.reshape(self.input_data['Nchains'],3))
 
         #save initial chain conformation distributions
         self.save_distributions('initial',chain.QN,chain.Z)
@@ -373,6 +375,7 @@ class FSM_LINEAR(object):
 
         #move arrays to device
         d_QN = cuda.to_device(chain.QN)
+        d_QN_first = cuda.to_device(QN_first)
         d_tau_CD = cuda.to_device(chain.tau_CD)
         d_Z = cuda.to_device(chain.Z)
         d_found_shift = cuda.to_device(found_shift)
@@ -458,8 +461,8 @@ class FSM_LINEAR(object):
                 stream2.synchronize()
 
                 #control chain time and stress calculation
-                ensemble_kernel.chain_control_kernel[blockspergrid, threadsperblock, stream3](d_Z,d_QN,self.input_data['NK'],d_chain_time,d_tdt,d_res,
-                                                                                              calc_type,self.flow,d_reach_flag,next_sync_time,
+                ensemble_kernel.chain_control_kernel[blockspergrid, threadsperblock, stream3](d_Z,d_QN,d_QN_first,self.input_data['NK'],d_chain_time,
+                                                                                              d_tdt,d_res,calc_type,self.flow,d_reach_flag,next_sync_time,
                                                                                               max_sync_time,d_write_time,time_resolution)
                 
                 #find jump type and location
@@ -495,7 +498,7 @@ class FSM_LINEAR(object):
                 stream1.synchronize()
                 
                 #apply jump move for each chain and update time of chain
-                ensemble_kernel.chain_kernel[blockspergrid,threadsperblock,stream1](d_Z, d_QN, d_create_SDCD_chains, d_QN_create_SDCD,
+                ensemble_kernel.chain_kernel[blockspergrid,threadsperblock,stream1](d_Z, d_QN, d_QN_first, d_create_SDCD_chains, d_QN_create_SDCD,
                                                                                     d_chain_time,d_time_compensation,
                                                                                     d_reach_flag, d_found_shift, d_found_index,d_tdt, d_sum_W_sorted,
                                                                                     d_t_cr, d_new_t_cr, d_f_t, d_tau_CD, d_new_tau_CD,

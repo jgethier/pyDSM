@@ -1,6 +1,6 @@
 import numpy as np
 import math
-from numba import cuda
+from numba import cuda, float64
 
 
 @cuda.jit(device=True)
@@ -262,7 +262,7 @@ def chain_control_kernel(Z,QN,NK,chain_time,tdt,result,calc_type,flow,reach_flag
         
         return
         
-    if (chain_time[i] > write_time[i]*time_resolution): #if chain time reaches next time to record stress (every time_resolution)
+    if (chain_time[i] > write_time[i]*time_resolution): #if chain time reaches next time to record stress/CoM (every time_resolution)
         
         if not flow:
             
@@ -282,17 +282,31 @@ def chain_control_kernel(Z,QN,NK,chain_time,tdt,result,calc_type,flow,reach_flag
                 result[i,arr_index,0] = stress_xy
             
             elif calc_type == 2:
-                com_x = 0.0
-                com_y = 0.0
-                com_z = 0.0
+                QN_1 = QN[i,1,:] #need fixed frame of reference, choosing first entanglement
+                chain_com = cuda.local.array(3,float64)
+                temp = cuda.local.array(3,float64)
+                prev_QN = cuda.local.array(3,float64)
+                
+                
                 for j in range(0,tz):
-                    com_x += (QN[i,j,0]/2.0) * QN[i,j,3] / NK
-                    com_y += (QN[i,j,1]/2.0) * QN[i,j,3] / NK
-                    com_z += (QN[i,j,2]/2.0) * QN[i,j,3] / NK
+                    QN_i = QN[i,j,:]
+                    term = cuda.local.array(3,float64)
+                    for k in range(0,3):
+                        temp[k] += prev_QN[k]
+                        term[k] += temp[k]
+                    term[0] += QN_i[0]/2.0
+                    term[1] += QN_i[1]/2.0
+                    term[2] += QN_i[2]/2.0
                     
-                result[i,arr_index,0] = com_x
-                result[i,arr_index,1] = com_y
-                result[i,arr_index,2] = com_z
+                    chain_com[0] += term[0] * QN_i[3] / NK
+                    chain_com[1] += term[1] * QN_i[3] / NK
+                    chain_com[2] += term[2] * QN_i[3] / NK
+                    
+                    prev_QN = QN_i
+                    
+                result[i,arr_index,0] = chain_com[0] + QN_1[0]
+                result[i,arr_index,1] = chain_com[1] + QN_1[1]
+                result[i,arr_index,2] = chain_com[2] + QN_1[2]
                 
         
         write_time[i]+=1

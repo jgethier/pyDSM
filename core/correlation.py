@@ -4,14 +4,14 @@ import math
 
 
 @cuda.jit
-def stress_sample(stress, sampf, uplim, time, stress_corr, corr_array):
+def calc_corr(rawdata, calc_type, sampf, uplim, time, data_corr, corr_array):
     
     i = cuda.blockIdx.x*cuda.blockDim.x + cuda.threadIdx.x #chain index
     
-    if i >= stress_corr.shape[0]:
+    if i >= data_corr.shape[0]:
         return
-   
-    data = stress[0:,i] #read stress data for chain i 
+    
+    data = rawdata[0:,0:,i]
     corr = corr_array[0:,i]
         
     p = 8 #block transformation parameters
@@ -20,27 +20,30 @@ def stress_sample(stress, sampf, uplim, time, stress_corr, corr_array):
     for k in range(1,p*m):
         array_index+=1
         if i == 0: #only record time for one chain, do not need to repeat for each chain
-            time[array_index] = (k/sampf)
-        stress_block(i, data, k, stress_corr, array_index, corr) #get the average correlation and error for time lag k
+            time[array_index] = int(k/sampf)
+        corr_block(i, data, k, data_corr, array_index, corr, calc_type) #get the average correlation and error for time lag k
     for l in range(1,int(uplim)):
         for j in range(p*m**l,p*m**(l+1),m**l):
             array_index += 1
             if i == 0:
-                time[array_index] = (j/sampf) #only record time for one chain, do not need to repeat for each chain
-            stress_block(i, data, j, stress_corr, array_index, corr) #get the average correlation and error for time lag j
+                time[array_index] = int(j/sampf) #only record time for one chain, do not need to repeat for each chain
+            corr_block(i, data, j, data_corr, array_index, corr, calc_type) #get the average correlation and error for time lag j
     return
 
 
 @cuda.jit(device=True)
-def stress_block(chainIdx, chainData, tj, corr, arr_index, xV):
+def corr_block(chainIdx, chainData, tj, corr, arr_index, xV, calc_type):
     
     #number of correlations
-    n=int(len(chainData)-tj)
+    n = int(len(chainData[0,0:])-tj)
     
     #begin correlation averaging for timelag tj
     xav = 0
     for r in range(0,n):
-        xV[r] = chainData[r]*chainData[int(r+tj)] #correlation between time and time + lag
+        if calc_type==1:
+            xV[r] = chainData[0,r]*chainData[0,int(r+tj)] #correlation between time and time + lag
+        elif calc_type == 2:
+            xV[r] = (chainData[0,r]-chainData[0,int(r+tj)])**2+(chainData[1,r]-chainData[1,int(r+tj)])**2+(chainData[2,r]-chainData[2,int(r+tj)])**2
         xav+=xV[r]/n  #calculate average
     c0=(xV[0]-xav)**2   
     for r in range(1,n):

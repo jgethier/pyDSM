@@ -2,6 +2,7 @@ import numpy as np
 import math
 from numba import cuda
 
+
 @cuda.jit(device=True)
 def apply_flow(Q,dt,kappa):
     
@@ -241,7 +242,7 @@ def scan_kernel(Z,shift_probs,sum_W_sorted,uniform_rand,rand_used,found_index,fo
 
 
 @cuda.jit
-def chain_control_kernel(Z,QN,chain_time,tdt,stress,flow,reach_flag,next_sync_time,max_sync_time,write_time,time_resolution):
+def chain_control_kernel(Z,QN,NK,chain_time,tdt,result,calc_type,flow,reach_flag,next_sync_time,max_sync_time,write_time,time_resolution):
     
     
     i = cuda.blockIdx.x*cuda.blockDim.x + cuda.threadIdx.x #chain index
@@ -253,7 +254,7 @@ def chain_control_kernel(Z,QN,chain_time,tdt,stress,flow,reach_flag,next_sync_ti
         return
     
     
-    if (chain_time[i] >= next_sync_time) and next_sync_time <= (write_time[i]*time_resolution):
+    if (chain_time[i] >= next_sync_time) and chain_time[i] <= (write_time[i]*time_resolution):
         
         #if sync time is reached and stress was recorded, set reach flag to 1
         reach_flag[i] = 1
@@ -264,19 +265,35 @@ def chain_control_kernel(Z,QN,chain_time,tdt,stress,flow,reach_flag,next_sync_ti
     if (chain_time[i] > write_time[i]*time_resolution): #if chain time reaches next time to record stress (every time_resolution)
         
         if not flow:
-            stress_xy = 0.0
-
+            
+            tz = int(Z[i])
+            
             if int((chain_time[i]%max_sync_time)/time_resolution)==0 and write_time[i] != 0:
                 arr_index = int(max_sync_time/time_resolution)
             else:
-                arr_index = int((chain_time[i]%max_sync_time)/time_resolution)  
+                arr_index = int((chain_time[i]%max_sync_time)/time_resolution) 
+            
+            if calc_type == 1:
+                stress_xy = 0.0 
 
-            tz = int(Z[i])
+                for j in range(0,tz):
+                    stress_xy -= (3.0*QN[i,j,0]*QN[i,j,1] / QN[i,j,3]) #tau_xy
 
-            for j in range(0,tz):
-                stress_xy -= (3.0*QN[i,j,0]*QN[i,j,1] / QN[i,j,3]) #tau_xy
-
-            stress[i,arr_index,0] = stress_xy
+                result[i,arr_index,0] = stress_xy
+            
+            elif calc_type == 2:
+                com_x = 0.0
+                com_y = 0.0
+                com_z = 0.0
+                for j in range(0,tz):
+                    com_x += (QN[i,j,0]/2.0) * QN[i,j,3] / NK
+                    com_y += (QN[i,j,1]/2.0) * QN[i,j,3] / NK
+                    com_z += (QN[i,j,2]/2.0) * QN[i,j,3] / NK
+                    
+                result[i,arr_index,0] = com_x
+                result[i,arr_index,1] = com_y
+                result[i,arr_index,2] = com_z
+                
         
         write_time[i]+=1
         

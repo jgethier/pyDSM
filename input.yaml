@@ -1,10 +1,10 @@
 beta: 1
 architecture: linear
 NK: 29 
-Nchains: 1000
+Nchains: 5000
 kappa: 
 - 0.0
-- 0.014
+- 0.0
 - 0.0 
 - 0.0
 - 0.0
@@ -14,7 +14,7 @@ kappa:
 - 0.0
 CD_flag: 1
 PD_flag: 0
-EQ_calc: 1
+EQ_calc: stress
 tau_K: 1
 sim_time: 3000
 
@@ -35,6 +35,6 @@ sim_time: 3000
 # -kzz
 #CD_flag - turn on constraint dynamics (0 is off, 1 is on)
 #PD_flag - use polydispersity in ensemble (currently not available)
-#EQ_calc - determines whether G(t) or MSD is calculated (only G(t) available currently)
+#EQ_calc - options: stress or msd, determines whether G(t) or MSD is calculated
 #tau_K - time step resolution for stress calculation, minimum value is 1
 #sim_time: total simulation time (tau_K)

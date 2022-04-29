@@ -299,14 +299,8 @@ def chain_control_kernel(Z,QN,QN_first,NK,chain_time,tdt,result,calc_type,flow,r
                         temp[k] += prev_QN[k]
                         term[k] += temp[k]
                         term[k] += QN_i[k]/2.0
-                    
-                    chain_com[0] += term[0] * QN_i[3] / NK
-                    chain_com[1] += term[1] * QN_i[3] / NK
-                    chain_com[2] += term[2] * QN_i[3] / NK
-                    
-                    prev_QN[0] = QN_i[0]
-                    prev_QN[1] = QN_i[1]
-                    prev_QN[2] = QN_i[2]
+                        chain_com[k] += term[k] * QN_i[3] / NK
+                        prev_QN[k] = QN_i[k]
                     
                 result[i,arr_index,0] = chain_com[0] + QN_1[0]
                 result[i,arr_index,1] = chain_com[1] + QN_1[1]
@@ -367,13 +361,13 @@ def chain_kernel(Z, QN,QN_first, create_SDCD_chains, QN_create_SDCD, chain_time,
         apply_shuffle(i, jumpIdx, jumpType, QN)
 
     elif jumpType == 2 or jumpType == 5:
-        apply_destroy(i, jumpIdx, jumpType, QN, QN_first[i], Z, t_cr, tau_CD, f_t, chain_time)
+        apply_destroy(i, jumpIdx, jumpType, QN, QN_first, Z, t_cr, tau_CD, f_t, chain_time)
         
     elif jumpType == 3 or jumpType == 6:
-        apply_create_SD(i, jumpIdx, createIdx, jumpType, QN, QN_first[i], QN_create_SDCD, Z, t_cr, new_t_cr, tau_CD, new_tau_CD, chain_time, tau_CD_used_SD, tau_CD_gauss_rand_SD)
+        apply_create_SD(i, jumpIdx, createIdx, jumpType, QN, QN_first, QN_create_SDCD, Z, t_cr, new_t_cr, tau_CD, new_tau_CD, chain_time, tau_CD_used_SD, tau_CD_gauss_rand_SD)
 
     elif jumpType == 4:
-        apply_create_CD(i, jumpIdx, createIdx, QN, QN_first[i], QN_create_SDCD, Z, t_cr, new_t_cr, tau_CD, new_tau_CD, tau_CD_used_CD, tau_CD_gauss_rand_CD, add_rand)
+        apply_create_CD(i, jumpIdx, createIdx, QN, QN_first, QN_create_SDCD, Z, t_cr, new_t_cr, tau_CD, new_tau_CD, tau_CD_used_CD, tau_CD_gauss_rand_CD, add_rand)
         
     else:
         return
@@ -407,6 +401,10 @@ def apply_destroy(chainIdx, jumpIdx, jumpType, QN, QN_first, Z, t_cr, tau_CD, f_
     if jumpIdx == 0:
         #destroy entanglement at beginning of chain
         
+        #update change to first entanglement location
+        for k in range(0,3):
+            QN_first[chainIdx,k] += QN[chainIdx,jumpIdx+1,k]
+            
         #destroy first strand and set N
         QN[chainIdx,jumpIdx,3] = QN[chainIdx,jumpIdx,3] + QN[chainIdx,jumpIdx+1,3]
         QN[chainIdx,jumpIdx,0] = QN[chainIdx,jumpIdx,1] = QN[chainIdx,jumpIdx,2] = 0.0
@@ -425,9 +423,6 @@ def apply_destroy(chainIdx, jumpIdx, jumpType, QN, QN_first, Z, t_cr, tau_CD, f_
         #set previous free strand at end of chain to 0s
         QN[chainIdx,tz-1,0] = QN[chainIdx,tz-1,1] = QN[chainIdx,tz-1,2] = QN[chainIdx,tz-1,3] = 0.0
         
-        #update change to first entanglement location
-        for k in range(0,3):
-            QN_first[k] += QN[chainIdx,1,k]
 
         return 
     
@@ -544,7 +539,7 @@ def apply_create_SD(chainIdx, jumpIdx, createIdx, jumpType, QN, QN_first, QN_cre
         tau_CD[chainIdx,jumpIdx] = tCD
         
         for k in range(0,3):
-            QN_first[k] -= temp[k]
+            QN_first[chainIdx,k] -= temp[k]
         
             
     else:
@@ -607,7 +602,7 @@ def apply_create_CD(chainIdx, jumpIdx, createIdx, QN, QN_first, QN_create_SD, Z,
         QN[chainIdx,jumpIdx,0] = QN[chainIdx,jumpIdx,1] = QN[chainIdx,jumpIdx,2] = 0.0
         
         for k in range(0,3):
-            QN_first[k] -= temp[k]
+            QN_first[chainIdx,k] -= temp[k]
             
         return 
     

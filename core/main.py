@@ -314,8 +314,7 @@ class FSM_LINEAR(object):
         chain.QN = chain.QN.reshape(self.input_data['Nchains'],self.input_data['NK'],4)
         chain.tau_CD = chain.tau_CD.reshape(self.input_data['Nchains'],self.input_data['NK'])
         chain.Z = chain.Z.reshape(self.input_data['Nchains'])
-        QN_first = chain.QN[:,1,:3] #keep track of first entanglement for MSD
-        QN_first = np.array(QN_first.reshape(self.input_data['Nchains'],3))
+        QN_first = np.zeros(shape=(chain.QN.shape[0],3)) #keep track of first entanglement for MSD
 
         #save initial chain conformation distributions
         self.save_distributions('initial',chain.QN,chain.Z)

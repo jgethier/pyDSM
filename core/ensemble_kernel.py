@@ -1,6 +1,6 @@
 import numpy as np
 import math
-from numba import cuda, float64
+from numba import cuda, float32
 
 
 @cuda.jit(device=True)
@@ -282,27 +282,31 @@ def chain_control_kernel(Z,QN,QN_first,NK,chain_time,tdt,result,calc_type,flow,r
                 result[i,arr_index,0] = stress_xy
             
             elif calc_type == 2:
-                QN_1 = QN_first[i] #need fixed frame of reference, choosing first entanglement which is tracked during simulation
-                chain_com = cuda.local.array(3,float64)
-                temp = cuda.local.array(3,float64)
-                prev_QN = cuda.local.array(3,float64)
+                QN_1 = QN_first[i,:] #need fixed frame of reference, choosing first entanglement which is tracked during simulation
+                chain_com = cuda.local.array(3,float32)
+                temp = cuda.local.array(3,float32)
+                prev_QN = cuda.local.array(3,float32)
                 
+                chain_com[0] = chain_com[1] = chain_com[2] = 0.0
+                temp[0] = temp[1] = temp[2] = 0.0
+                prev_QN[0] = prev_QN[1] = prev_QN[2] = 0.0
                 
                 for j in range(0,tz):
                     QN_i = QN[i,j,:]
-                    term = cuda.local.array(3,float64)
+                    term = cuda.local.array(3,float32)
+                    term[0] = term[1] = term[2] = 0.0
                     for k in range(0,3):
                         temp[k] += prev_QN[k]
                         term[k] += temp[k]
-                    term[0] += QN_i[0]/2.0
-                    term[1] += QN_i[1]/2.0
-                    term[2] += QN_i[2]/2.0
+                        term[k] += QN_i[k]/2.0
                     
                     chain_com[0] += term[0] * QN_i[3] / NK
                     chain_com[1] += term[1] * QN_i[3] / NK
                     chain_com[2] += term[2] * QN_i[3] / NK
                     
-                    prev_QN = QN_i
+                    prev_QN[0] = QN_i[0]
+                    prev_QN[1] = QN_i[1]
+                    prev_QN[2] = QN_i[2]
                     
                 result[i,arr_index,0] = chain_com[0] + QN_1[0]
                 result[i,arr_index,1] = chain_com[1] + QN_1[1]
@@ -637,22 +641,3 @@ def apply_create_CD(chainIdx, jumpIdx, createIdx, QN, QN_first, QN_create_SD, Z,
         
         
     return
-        
-            
-        
-        
-        
-    
-    
-
-        
-    
-
-    
-
-
-
-
-
-
-

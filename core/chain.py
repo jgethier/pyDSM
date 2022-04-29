@@ -20,8 +20,8 @@ class ensemble_chains(object):
     
     def z_dist(self,tNk):
         
-        p = rng.genrand_real3()   
-        y = float(p/(1+self.beta)*math.pow(1+(1/self.beta),tNk))
+        p = rng.genrand_real3()  
+        y = p/(1+self.beta)*math.pow(1+(1/self.beta),tNk)
         z = 1
         sum1 = 0.0
         si = float(1.0/self.beta)
@@ -38,7 +38,6 @@ class ensemble_chains(object):
         tz = self.z_dist(tNk)
         while (tz > z_max):
             tz = self.z_dist(tNk)
-
         return tz
 
 
@@ -65,11 +64,11 @@ class ensemble_chains(object):
             A = tNk-1
             for i in range(ztmp,1,-1):
                 p = rng.genrand_real3()
-                Ntmp = 0
+                Ntmp = 1
                 sumres = 0.0
-                while (p>=sumres) and ((Ntmp+1) != (A-i+2)):
-                    Ntmp+=1
+                while (p>=sumres) and ((Ntmp) != (A-i+2)):
                     sumres += self.ratio(A, Ntmp, i)
+                    Ntmp+=1
                 tN[i-1] = Ntmp
                 A = A - Ntmp
             tN[0] = A + 1

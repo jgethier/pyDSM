@@ -12,5 +12,5 @@ Install: cudatoolkits <-conda
 Run the program
 >> python gpu_dsm.py num
 
-and replace 'num' with any value (used for random seed generation and file name)
+and replace 'num' with any integer (used for random seed generation and file name)
 ```

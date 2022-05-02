@@ -19,7 +19,7 @@ tau_K: 1
 sim_time: 3000
 
 #INPUT FILE STRUCTURE
-#beta - entanglement activity 
+#beta - entanglement activity (1 for CFSM)
 #architecture - only 'linear' available currently, 'linear' uses analytical expressions for p_cd(tau) statistics
 #NK - total number of Kuhn steps in chain
 #Nchains - number of chains in the ensemble 

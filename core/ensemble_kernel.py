@@ -37,7 +37,7 @@ def calc_flow_stress(Z,QN,stress):
 
         
 @cuda.jit
-def calc_probs_shuffle(Z,QN,flow,tdt,kappa,tau_CD,shift_probs,CD_flag,CD_create_prefact):
+def calc_probs_strands(Z,QN,flow,tdt,kappa,tau_CD,shift_probs,CD_flag,CD_create_prefact):
 
     i = cuda.blockIdx.x*cuda.blockDim.x + cuda.threadIdx.x #chain index
     j = cuda.blockIdx.y*cuda.blockDim.y + cuda.threadIdx.y #strand index
@@ -166,7 +166,7 @@ def calc_probs_chainends(Z, QN, shift_probs, CD_flag, CD_create_prefact, beta, N
 
 
 @cuda.jit
-def scan_kernel(Z,shift_probs,sum_W_sorted,uniform_rand,rand_used,found_index,found_shift,add_rand,CD_flag):
+def choose_step_kernel(Z,shift_probs,sum_W_sorted,uniform_rand,rand_used,found_index,found_shift,add_rand,CD_flag):
 
     i = cuda.blockIdx.x*cuda.blockDim.x + cuda.threadIdx.x #chain index
     
@@ -242,7 +242,7 @@ def scan_kernel(Z,shift_probs,sum_W_sorted,uniform_rand,rand_used,found_index,fo
 
 
 @cuda.jit
-def chain_control_kernel(Z,QN,QN_first,NK,chain_time,tdt,result,calc_type,flow,reach_flag,next_sync_time,max_sync_time,write_time,time_resolution):
+def time_control_kernel(Z,QN,QN_first,NK,chain_time,tdt,result,calc_type,flow,reach_flag,next_sync_time,max_sync_time,write_time,time_resolution):
     
     
     i = cuda.blockIdx.x*cuda.blockDim.x + cuda.threadIdx.x #chain index
@@ -312,7 +312,7 @@ def chain_control_kernel(Z,QN,QN_first,NK,chain_time,tdt,result,calc_type,flow,r
         
     
 @cuda.jit
-def chain_kernel(Z, QN,QN_first, create_SDCD_chains, QN_create_SDCD, chain_time, time_compensation, reach_flag, found_shift, found_index, tdt, sum_W_sorted,
+def apply_step_kernel(Z, QN,QN_first, create_SDCD_chains, QN_create_SDCD, chain_time, time_compensation, reach_flag, found_shift, found_index, tdt, sum_W_sorted,
                  t_cr, new_t_cr, f_t, tau_CD, new_tau_CD, rand_used, add_rand, tau_CD_used_SD, tau_CD_used_CD, tau_CD_gauss_rand_SD, tau_CD_gauss_rand_CD):
    
     

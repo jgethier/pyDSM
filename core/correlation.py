@@ -4,29 +4,25 @@ import math
 
 
 @cuda.jit
-def calc_corr(rawdata, calc_type, sampf, uplim, time, data_corr, corr_array):
+def calc_corr(rawdata, calc_type, sampf, uplim, data_corr, corr_array):
     
     i = cuda.blockIdx.x*cuda.blockDim.x + cuda.threadIdx.x #chain index
     
     if i >= data_corr.shape[0]:
         return
     
-    data = rawdata[0:,0:,i]
-    corr = corr_array[0:,i]
+    data = rawdata[0:,0:,i] #raw data for chain i
+    corr = corr_array[0:,i] #store correlation values for time t and t+lag for chain i
         
     p = 8 #block transformation parameters
     m = 2 #block transformation parameters
     array_index = -1 #initialize array indexing for final results
     for k in range(1,p*m):
         array_index+=1
-        if i == 0: #only record time for one chain, do not need to repeat for each chain
-            time[array_index] = int(k/sampf)
         corr_block(i, data, k, data_corr, array_index, corr, calc_type) #get the average correlation and error for time lag k
     for l in range(1,int(uplim)):
         for j in range(p*m**l,p*m**(l+1),m**l):
             array_index += 1
-            if i == 0:
-                time[array_index] = int(j/sampf) #only record time for one chain, do not need to repeat for each chain
             corr_block(i, data, j, data_corr, array_index, corr, calc_type) #get the average correlation and error for time lag j
     return
 

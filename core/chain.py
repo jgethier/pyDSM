@@ -10,9 +10,9 @@ class ensemble_chains(object):
 
         self.beta = config['beta']
         self.CD_flag = config['CD_flag']
-        self.QN = []
-        self.tau_CD = []
-        self.Z = []
+        self.QN = np.zeros(shape=(config['Nchains'],config['NK'],4),dtype=float)
+        self.tau_CD = np.zeros(shape=(config['Nchains'],config['NK']),dtype=float)
+        self.Z = np.zeros(shape=config['Nchains'],dtype=float)
         rng.initialize_generator(seed)
 
         return
@@ -91,37 +91,36 @@ class ensemble_chains(object):
         return Qx,Qy,Qz
 
 
-    def chain_init(self, Nk, z_max, pcd=None, dangling_begin=True, PD_flag=False):
+    def chain_init(self, chainIdx, Nk, z_max, pcd=None, dangling_begin=True, PD_flag=False):
 
         tz = self.z_dist_truncated(Nk,z_max)
-
-        tau_CD = [0]*(z_max)
+        self.Z[chainIdx] = tz
 
         for k in range(0,tz-1):
             if self.CD_flag !=0:
-                tau_CD[k] = pcd.tau_CD_f_t() 
+                self.tau_CD[chainIdx,k] = pcd.tau_CD_f_t() 
             
             else:
-                tau_CD[k] = 0.0
+                self.tau_CD[chainIdx,k] = 0.0
 
         tN = self.N_dist(tz,Nk)
         Qx,Qy,Qz = self.Q_dist(tz, tN)
 
-        tmpQN = [[0,0,0,0] for j in range(0,z_max)]
+        #tmpQN = [[0,0,0,0] for j in range(0,z_max)]
         for k in range(0,tz-1):
-            tmpQN[k] = [Qx[k], Qy[k], Qz[k], tN[k]]
-            if tau_CD[k]==0:
-                tau_CD[k]=np.inf
+            self.QN[chainIdx,k] = [Qx[k], Qy[k], Qz[k], tN[k]]
+            if self.tau_CD[chainIdx,k]==0:
+                self.tau_CD[chainIdx,k]=np.inf
             else:
-                tau_CD[k] = 1.0/tau_CD[k]
+                self.tau_CD[chainIdx,k] = 1.0/self.tau_CD[chainIdx,k]
 
         if dangling_begin:
-            tmpQN[0] = [0.0,0.0,0.0,tN[0]]
-            tmpQN[tz-1] = [0.0,0.0,0.0,tN[tz-1]]
+            self.QN[chainIdx,0] = [0.0,0.0,0.0,tN[0]]
+            self.QN[chainIdx,tz-1] = [0.0,0.0,0.0,tN[tz-1]]
 
-        self.QN = np.append(self.QN,tmpQN)
-        self.Z = np.append(self.Z,tz)
-        self.tau_CD = np.array(np.append(self.tau_CD,tau_CD))
+        #self.QN = np.append(self.QN,tmpQN)
+        #self.Z = np.append(self.Z,tz)
+        #self.tau_CD = np.array(np.append(self.tau_CD,tau_CD))
 
 
         return

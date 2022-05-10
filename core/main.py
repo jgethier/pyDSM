@@ -5,6 +5,7 @@ import numpy as np
 from numba import cuda
 import yaml
 import math
+import pickle
 from core.chain import ensemble_chains
 from core.pcd_tau import p_cd, p_cd_linear
 import core.random_gen as rng
@@ -33,18 +34,21 @@ class FSM_LINEAR(object):
         else:
             sys.exit("No input file found.")
 
-        #set seed number based on num argument
-        SEED = sim_ID*self.input_data['Nchains']
-        self.seed = SEED
-        print("Simulation ID: %d"%(sim_ID))
-        print("Using %d*Nchains as a seed for the random number generator."%(sim_ID))
-        
+        #check for GPU device
         num_devices = len(cuda.gpus)
         if num_devices == 0:
             sys.exit("No GPU found.")
 
         #select gpu device
         cuda.select_device(device_ID)
+        device_name = str(cuda.cudadrv.driver.Device(device_ID).name).replace('b','')
+        print("Using device: %s"%(device_name))
+
+        #set seed number based on num argument
+        SEED = sim_ID*self.input_data['Nchains']
+        self.seed = SEED
+        print("Simulation ID: %d"%(sim_ID))
+        print("Using %d*Nchains as a seed for the random number generator."%(sim_ID))
         
         return
 
@@ -101,17 +105,13 @@ class FSM_LINEAR(object):
                 stress_array - array of stress values to write
         Outputs: stress over time for each chain in stress.txt file
         '''
-        
-        #get output stress file ready
-        self.stress_output = os.path.join(self.output_path,'stress_%d.txt'%self.sim_ID)
-        
+   
         #if first time sync, need to include 0 and initialize file
         if num_sync == 1:
-            with open(self.stress_output,'w') as f:
-                if self.flow:
-                    f.write('time, tau_xx, tau_yy, tau_zz, tau_xy, tau_yz, tau_xz\n')
-                else:
-                    f.write('time, stress_1, stress_2, ..., stress_Nchains\n')     
+            if self.flow:
+                self.stress_output = os.path.join(self.output_path,'stress_%d.txt'%self.sim_ID)
+            else:
+                self.stress_output = os.path.join(self.output_path,'stress_%d.dat'%self.sim_ID)
             self.old_sync_time = 0
             time_index = 0
         
@@ -137,8 +137,22 @@ class FSM_LINEAR(object):
             combined = np.hstack((time_array.T, stress.T))
         
         #write stress to file
-        with open(self.stress_output, "a") as f:
-            np.savetxt(f, combined, delimiter=',', fmt='%.8f')
+        if num_sync == 1:
+            if self.flow:
+                with open(self.stress_output,'w') as f:
+                    f.write('time, tau_xx, tau_yy, tau_zz, tau_xy, tau_yz, tau_xz\n')
+                    np.savetxt(f, combined, delimiter=',', fmt='%.8f')
+            else:
+                with open(self.stress_output, "wb") as f:
+                   pickle.dump(combined,f)
+        else:
+            if self.flow:
+                with open(self.stress_output,'a') as f:
+                    np.savetxt(f, combined, delimiter=',', fmt='%.8f')
+            else:
+                with open(self.stress_output, 'ab') as f:
+                    pickle.dump(combined,f)
+            #np.savetxt(f, combined, delimiter=',', fmt='%.8f')
         
         #keeping track of the last simulation time for beginning of next array
         self.old_sync_time = time
@@ -198,13 +212,28 @@ class FSM_LINEAR(object):
         
         #keeping track of the last simulation time for beginning of next array
         self.old_sync_time = time
-            
-            
+    
+    def load_results(self,filename,result_array=[]):
+        '''
+        Load in binary .dat file into the result array
+        '''
+        with open(filename,'rb') as f:
+            try:
+                while True:
+                    data = pickle.load(f)
+                    for j in data:
+                        result_array.append(j)
+            except EOFError:
+                pass
+
+        return result_array
+
     def main(self): 
         #set variables and start simulation 
 
         #if CD_flag is set (constraint dynamics is on), set probability of CD parameters with analytic expression
         if self.input_data['CD_flag']==1 and self.input_data['architecture']=='linear':
+            analytic=True 
             
             #initialize constants for constraint dynamics probability calculation
             pcd = p_cd_linear(self.input_data['NK'],self.input_data['beta'])
@@ -235,6 +264,7 @@ class FSM_LINEAR(object):
 
         #if not linear chains, use discrete fit for tau_CD
         elif self.input_data['CD_flag']==1 and self.input_data['architecture']!='linear':
+            analytic=False
 
             #check to see if multi-mode maxwell fit param file exists, read and set modes
             if os.path.isfile("pcd_MMM.txt"):
@@ -271,6 +301,7 @@ class FSM_LINEAR(object):
         
         #else, set probability factors to 0
         else:
+            analytic=False
             pcd=None
             discrete = False 
             pcd_table_tau = np.zeros(1)
@@ -286,7 +317,7 @@ class FSM_LINEAR(object):
         
         #initialize chains
         for m in range(0,self.input_data['Nchains']):
-            chain.chain_init(self.input_data['NK'],z_max=self.input_data['NK'],pcd=pcd)
+            chain.chain_init(m,self.input_data['NK'],z_max=self.input_data['NK'],pcd=pcd)
         
         print('Done.')
         
@@ -313,9 +344,9 @@ class FSM_LINEAR(object):
                 sys.exit('Incorrect EQ_calc specified in input file. Please choose "stress" or "msd" for G(t) or MSD for the equilibrium calculation.')
         
         #reshape arrays for CUDA kernels
-        chain.QN = chain.QN.reshape(self.input_data['Nchains'],self.input_data['NK'],4)
-        chain.tau_CD = chain.tau_CD.reshape(self.input_data['Nchains'],self.input_data['NK'])
-        chain.Z = chain.Z.reshape(self.input_data['Nchains'])
+        #chain.QN = chain.QN.reshape(self.input_data['Nchains'],self.input_data['NK'],4)
+        #chain.tau_CD = chain.tau_CD.reshape(self.input_data['Nchains'],self.input_data['NK'])
+        #chain.Z = chain.Z.reshape(self.input_data['Nchains'])
         QN_first = np.zeros(shape=(chain.QN.shape[0],3)) #keep track of first entanglement for MSD
 
         #save initial chain conformation distributions
@@ -325,9 +356,9 @@ class FSM_LINEAR(object):
         np.savetxt(os.path.join(self.output_path,'Z_initial_%d.txt'%self.sim_ID),chain.Z,fmt='%d')
 
         #initialize arrays for finding jump index
-        found_index = np.zeros(shape=(chain.QN.shape[0]),dtype=int)
-        found_shift = np.zeros(shape=(chain.QN.shape[0]),dtype=int)
-        sum_W_sorted = np.zeros(shape=(chain.QN.shape[0]),dtype=float)
+        #found_index = np.zeros(shape=(chain.QN.shape[0]),dtype=int)
+        #found_shift = np.zeros(shape=(chain.QN.shape[0]),dtype=int)
+        #sum_W_sorted = np.zeros(shape=(chain.QN.shape[0]),dtype=float)
         shift_probs = np.zeros(shape=(chain.QN.shape[0],chain.QN.shape[1]+1,4),dtype=float)
         
         #intitialize arrays for random numbers used
@@ -337,7 +368,7 @@ class FSM_LINEAR(object):
         tau_CD_gauss_rand_SD = np.zeros(shape=(chain.QN.shape[0],250,4),dtype=float)
         tau_CD_gauss_rand_CD = np.zeros(shape=(chain.QN.shape[0],250,4),dtype=float)
         uniform_rand = np.zeros(shape=(chain.QN.shape[0],250),dtype=float)
-        add_rand = np.zeros(shape=(chain.QN.shape[0]),dtype=float)
+        #add_rand = np.zeros(shape=(chain.QN.shape[0]),dtype=float)
         
         #move random number arrays and pcd statistics to device
         d_tau_CD_gauss_rand_SD=cuda.to_device(tau_CD_gauss_rand_SD)
@@ -373,21 +404,37 @@ class FSM_LINEAR(object):
         t_cr = np.zeros(shape=(chain.QN.shape[0],chain.QN.shape[1]),dtype=float)
         f_t = np.zeros(shape=self.input_data['Nchains'],dtype=float)
         write_time = np.zeros(shape=self.input_data['Nchains'],dtype=int)
+                
+        #initialize arrays for which chains create a slip link from sliding and/or constraint dynamics
+        create_SDCD_chains = np.ones(shape=chain.QN.shape[0],dtype=int)*-1
+        QN_create_SDCD = np.zeros(shape=(chain.QN.shape[0],chain.QN.shape[1]+1,4))
+        new_t_cr = np.zeros(shape=(chain.QN.shape[0],chain.QN.shape[1]+1))
+        new_tau_CD = np.zeros(shape=(chain.QN.shape[0],chain.QN.shape[1]+1))
+
+        #move arrays to device
+        d_QN_create_SDCD = cuda.to_device(QN_create_SDCD)
+        d_create_SDCD_chains = cuda.to_device(create_SDCD_chains)
+        d_new_t_cr = cuda.to_device(new_t_cr)
+        d_new_tau_CD = cuda.to_device(new_tau_CD)
 
         #move arrays to device
         d_QN = cuda.to_device(chain.QN)
+        d_NK = cuda.to_device([self.input_data['NK']])
+        d_CDflag = cuda.to_device([self.input_data['CD_flag']])
+        d_beta = cuda.to_device([self.input_data['beta']])
         d_QN_first = cuda.to_device(QN_first)
         d_tau_CD = cuda.to_device(chain.tau_CD)
         d_Z = cuda.to_device(chain.Z)
-        d_found_shift = cuda.to_device(found_shift)
-        d_found_index = cuda.to_device(found_index)
+        #d_found_shift = cuda.to_device(found_shift)
+        #d_found_index = cuda.to_device(found_index)
         d_shift_probs = cuda.to_device(shift_probs)
-        d_sum_W_sorted = cuda.to_device(sum_W_sorted)
-        d_add_rand = cuda.to_device(add_rand)
+        #d_sum_W_sorted = cuda.to_device(sum_W_sorted)
+        #d_add_rand = cuda.to_device(add_rand)
         d_t_cr = cuda.to_device(t_cr)
         d_f_t = cuda.to_device(f_t)
         d_chain_time = cuda.to_device(chain_time)
         d_time_compensation = cuda.to_device(time_compensation)
+        d_time_resolution = cuda.to_device([time_resolution])
         d_write_time = cuda.to_device(write_time)
         d_tdt = cuda.to_device(tdt)
         d_rand_used = cuda.to_device(rand_used)
@@ -415,7 +462,8 @@ class FSM_LINEAR(object):
                 res = np.zeros(shape=(chain.QN.shape[0],int(max_sync_time/time_resolution)+1,3),dtype=float) 
                 
         d_res = cuda.to_device(res) #move result array to device 
-        
+        d_calc_type = cuda.to_device([calc_type])
+
         #calculate number of time syncs based on max_sync_time
         num_time_syncs = int(math.ceil(self.input_data['sim_time'] / max_sync_time))
         
@@ -439,6 +487,10 @@ class FSM_LINEAR(object):
         #timer start
         t0 = time.time()
 
+        #start progression bar
+        x_sync = 0
+        self.progbar(x_sync,num_time_syncs,20)
+
         #start loop over number of times chains are synced
         for x_sync in range(1,num_time_syncs+1):
             
@@ -456,67 +508,47 @@ class FSM_LINEAR(object):
                 
                 #calculate probabilities for entangled strand of a chain (create, destroy, or shuffle)
                 ensemble_kernel.calc_probs_strands[dimGrid, dimBlock, stream1](d_Z,d_QN,self.flow,d_tdt,d_kappa,d_tau_CD,d_shift_probs,
-                                                                               self.input_data['CD_flag'],d_CD_create_prefact)
+                                                                               d_CDflag,d_CD_create_prefact)
                 
                 #calculate probabilities at chain ends/dangling strand ends (create, destroy, or shuffle at ends)
-                ensemble_kernel.calc_probs_chainends[blockspergrid, threadsperblock, stream2](d_Z,d_QN,d_shift_probs,self.input_data['CD_flag'],
-                                                                                    d_CD_create_prefact,self.input_data['beta'],self.input_data['NK'])
+                ensemble_kernel.calc_probs_chainends[blockspergrid, threadsperblock, stream2](d_Z,d_QN,d_shift_probs,d_CDflag,
+                                                                                    d_CD_create_prefact,d_beta,d_NK)
                 stream2.synchronize()
 
                 #control chain time and stress calculation
-                ensemble_kernel.time_control_kernel[blockspergrid, threadsperblock, stream3](d_Z,d_QN,d_QN_first,self.input_data['NK'],d_chain_time,
-                                                                                              d_tdt,d_res,calc_type,self.flow,d_reach_flag,next_sync_time,
-                                                                                              max_sync_time,d_write_time,time_resolution)
+                # ensemble_kernel.time_control_kernel[blockspergrid, threadsperblock, stream3](d_Z,d_QN,d_QN_first,self.input_data['NK'],d_chain_time,
+                #                                                                               d_tdt,d_res,calc_type,self.flow,d_reach_flag,next_sync_time,
+                #                                                                               max_sync_time,d_write_time,time_resolution)
                 
                 #find jump type and location
-                ensemble_kernel.choose_step_kernel[blockspergrid, threadsperblock,stream1](d_Z, d_shift_probs, d_sum_W_sorted, d_uniform_rand, d_rand_used, 
-                                                                                    d_found_index, d_found_shift,d_add_rand, self.input_data['CD_flag'])
+                # ensemble_kernel.choose_step_kernel[blockspergrid, threadsperblock,stream1](d_Z, d_shift_probs, d_sum_W_sorted, d_uniform_rand, d_rand_used, 
+                #                                                                     d_found_index, d_found_shift,d_add_rand, d_CDflag)
                 
                 
                 #if chain has reached its sync time, set reach_flag of chain to 1
-                reach_flag_host = d_reach_flag.copy_to_host(stream=stream3)
+                #reach_flag_host = d_reach_flag.copy_to_host(stream=stream3)
                 
                 stream1.synchronize()
-                stream3.synchronize()
-
-                #find which chains create slip link (from SD or CD) so that shifted arrays can be stored
-                found_shift_SDCD = d_found_shift.copy_to_host(stream=stream1)
-                stream1.synchronize()
-                shared_size = np.argwhere((found_shift_SDCD==6) | (found_shift_SDCD==4))
-                create_SDCD_chains = np.ones(shape=chain.QN.shape[0],dtype=int)*-1
-                for j in range(0,len(shared_size)):
-                    create_SDCD_chains[shared_size[j,0]] = j
-                
-                #initialize arrays for which chains create a slip link from sliding and/or constraint dynamics
-                QN_create_SDCD = np.zeros(shape=(len(shared_size),chain.QN.shape[1]+1,4))
-                new_t_cr = np.zeros(shape=(len(shared_size),chain.QN.shape[1]+1))
-                new_tau_CD = np.zeros(shape=(len(shared_size),chain.QN.shape[1]+1))
-                
-                #move arrays to device
-                d_QN_create_SDCD = cuda.to_device(QN_create_SDCD,stream=stream1)
-                d_create_SDCD_chains = cuda.to_device(create_SDCD_chains,stream=stream1)
-                d_new_t_cr = cuda.to_device(new_t_cr,stream=stream1)
-                d_new_tau_CD = cuda.to_device(new_tau_CD,stream=stream1)
-                
-                stream1.synchronize()
+                #stream3.synchronize()
                 
                 #apply jump move for each chain and update time of chain
-                ensemble_kernel.apply_step_kernel[blockspergrid,threadsperblock,stream1](d_Z, d_QN, d_QN_first, d_create_SDCD_chains, d_QN_create_SDCD,
-                                                                                    d_chain_time,d_time_compensation,
-                                                                                    d_reach_flag, d_found_shift, d_found_index,d_tdt, d_sum_W_sorted,
+                ensemble_kernel.apply_step_kernel[blockspergrid,threadsperblock,stream1](d_Z, d_QN, d_QN_first, d_NK, d_CDflag, self.flow,d_calc_type,d_res, d_shift_probs, d_create_SDCD_chains, d_QN_create_SDCD,
+                                                                                    d_chain_time,d_time_compensation,d_time_resolution,next_sync_time,max_sync_time,d_write_time,
+                                                                                    d_reach_flag, d_tdt,
                                                                                     d_t_cr, d_new_t_cr, d_f_t, d_tau_CD, d_new_tau_CD,
-                                                                                    d_rand_used, d_add_rand, d_tau_CD_used_SD,
+                                                                                    d_rand_used, d_uniform_rand, d_tau_CD_used_SD,
                                                                                     d_tau_CD_used_CD,d_tau_CD_gauss_rand_SD,
                                                                                     d_tau_CD_gauss_rand_CD)
-                    
+
+                
+                stream1.synchronize()
+                
+                reach_flag_host = d_reach_flag.copy_to_host(stream=stream1)
                 stream1.synchronize()
                 
                 #check if all chains reached time for sync
-                sum_reach_flags = 0 
-                for flag in reach_flag_host:
-                    sum_reach_flags += int(flag) #sum the reach flags equal to 1 or 0
-              
-                
+                sum_reach_flags = int(np.sum(reach_flag_host)) 
+                 
                 #if all reach_flags are 1, sum should equal number of chains and all chains are synced
                 reach_flag_all = (sum_reach_flags == int(self.input_data['Nchains'])) 
                 
@@ -524,11 +556,12 @@ class FSM_LINEAR(object):
                 step_count+=1
 
                 #record entanglement lifetime distribution
-                ft = d_f_t.copy_to_host(stream=stream1)
-                stream1.synchronize()
-                for k in range(0,self.input_data['Nchains']):
-                    if ft[k] > 0.0 and ft[k] < 20:
-                        enttime_bins[math.floor(ft[k]*1000)]+=1
+                if analytic==False:
+                    ft = d_f_t.copy_to_host(stream=stream1)
+                    stream1.synchronize()
+                    for k in range(0,self.input_data['Nchains']):
+                        if ft[k] > 0.0 and ft[k] < 20:
+                            enttime_bins[math.floor(ft[k]*1000)]+=1
 
 
                 #if random numbers are used (max array size is 250), change out the used values with new random numbers and advance the random seed number
@@ -567,20 +600,21 @@ class FSM_LINEAR(object):
             
         t1 = time.time()
         print('')
-        print("Total simulation time: %.2f minutes"%((t1-t0)/60.0))
+        print("Total simulation time: %.2f minutes."%((t1-t0)/60.0))
         
         #copy final chain conformations and entanglement numbers from device to host
         QN_final = d_QN.copy_to_host()
         Z_final = d_Z.copy_to_host()
         
         #calculate entanglement lifetime distribution
-        enttime_run_sum = 0
-        filename = os.path.join(self.output_path,'./f_dt_%d.txt'%self.sim_ID)
-        with open(filename, 'w') as f:
-            for k in range(0,len(enttime_bins)):
-                if enttime_bins[k]!=0:
-                    enttime_run_sum += enttime_bins[k]
-                    f.write('%d  %d\n'%(k,enttime_bins[k]))
+        if analytic == False:
+            enttime_run_sum = 0
+            filename = os.path.join(self.output_path,'./f_dt_%d.txt'%self.sim_ID)
+            with open(filename, 'w') as f:
+                for k in range(0,len(enttime_bins)):
+                    if enttime_bins[k]!=0:
+                        enttime_run_sum += enttime_bins[k]
+                        f.write('%d  %d\n'%(k,enttime_bins[k]))
                 
         #save final distributions to file
         np.savetxt(os.path.join(self.output_path,'Z_final_%d.txt'%self.sim_ID),Z_final,fmt='%d')
@@ -591,7 +625,8 @@ class FSM_LINEAR(object):
             #read in data files for autocorrelation function
             if calc_type == 1: #stress data if EQ_calc is 'stress'
                 print("Loading stress data for G(t) calculation...",end="",flush=True)
-                stress_array = np.loadtxt(self.stress_output,delimiter=',',skiprows=1) #load stress file
+                stress_array = self.load_results(self.stress_output)     
+                stress_array = np.array(stress_array)
                 time_array = stress_array[0:,0].astype(int) # tau_K values
                 sampf = 1/(time_array[1]-time_array[0]) #normalize time by smallest resolution
                 rawdata = np.array(np.reshape(stress_array[0:,1:],(1,len(time_array),self.input_data['Nchains']))) #reshape stress array
@@ -629,7 +664,7 @@ class FSM_LINEAR(object):
                 for k in range(p*m**l,p*m**(l+1),m**l):
                     count+=1
                     corr_time.append(int(k/sampf))
-
+            print(len(corr_time))
             #initialize arrays for output
             data_corr = np.zeros(shape=(self.input_data['Nchains'],count,2),dtype=float) #hold average chain stress/com correlations 
             corr_array =np.zeros(shape=(len(time_array),self.input_data['Nchains']),dtype=float) #array to store correlation values for averaging (single chain) inside kernel
@@ -664,7 +699,9 @@ class FSM_LINEAR(object):
                 print('Done.')
                 print('MSD results written to MSD_result_%d.txt'%self.sim_ID)
 
-           
+            t2 = time.time()
+            print('')
+            print("Total computational time: %.2f minutes."%((t2-t0)/60.0))
         
 if __name__ == "__main__":
     run_dsm = FSM_LINEAR(1)

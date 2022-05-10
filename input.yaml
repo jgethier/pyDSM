@@ -1,7 +1,7 @@
 beta: 1
 architecture: linear
 NK: 40 
-Nchains: 10000
+Nchains: 5000
 kappa: 
 - 0.0
 - 0.0

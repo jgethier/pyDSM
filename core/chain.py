@@ -1,8 +1,6 @@
 import numpy as np
 import math
 import core.random_gen as rng
-from core.pcd_tau import p_cd
-
 
 class ensemble_chains(object):
 

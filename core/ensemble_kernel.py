@@ -1,7 +1,5 @@
-import numpy as np
 import math
 from numba import cuda, float32
-
 
 @cuda.jit(device=True)
 def apply_flow(Q,dt,kappa):
@@ -215,6 +213,117 @@ def calc_probs_chainends(Z, QN, shift_probs, CD_flag, CD_create_prefact, beta, N
 
 
 @cuda.jit
+def choose_kernel(Z,shift_probs,sum_W_sorted,uniform_rand,rand_used,found_index,found_shift,add_rand,CD_flag,NK):
+
+    s = cuda.shared.array(1000,float32)
+
+    i = cuda.blockIdx.x*cuda.blockDim.x + cuda.threadIdx.x #chain index
+    j = cuda.blockIdx.y*cuda.blockDim.y + cuda.threadIdx.y #strand index
+
+    if NK[0]>1000 and i == 0 and j == 0:
+        print("NK is larger than 1000. Reduce chain size.")
+ 
+    if i >= shift_probs.shape[0]:
+        return
+    tz = int(Z[i])
+    if j >= tz+1:
+        return 
+
+    temp = shift_probs[i,j,:]
+    s[j] = 0.0
+    cuda.syncthreads()
+
+    if CD_flag[0] == 1:
+        var = temp[0] + temp[1] + temp[2] + temp[3]
+    else:
+        var = temp[0] + temp[1]
+
+    d = 1
+    while d < 32:
+        
+        var2 = cuda.shfl_up_sync(-1,var,d)
+        if (j % 32 >= d):
+            var += var2
+        d <<= 1
+
+    if (j % 32 == 31): 
+        s[int(j / 32)] = var
+
+    cuda.syncthreads()
+
+    if (j < 32):
+        var2 = 0.0
+        if (j < cuda.blockDim.y / 32):
+            var2 = s[j]
+        d=1
+        while d<32:
+            var3 = cuda.shfl_up_sync(-1,var2,d)
+            if (j % 32 >= d): 
+                var2 += var3
+            d = d<<1
+        
+        if (j < cuda.blockDim.y / 32):
+            s[j] = var2
+    
+    cuda.syncthreads()
+
+    if (j >= 32):
+        var += s[int(j / 32 - 1)]
+    
+    cuda.syncthreads()
+
+    s[j] = var
+
+    cuda.syncthreads()
+
+    sum_W_sorted[i] = s[tz]
+    if i == 0 and j == 0:
+        print(s[tz])
+    x = float(s[tz])*uniform_rand[i,int(rand_used[i])]
+    
+    if j == 0:
+        left = 0
+    elif j>0:
+        left = s[j-1]
+
+    if i == 0:
+        print(left)
+
+    xFound = bool((left < x) & (x <= left + temp[0]))
+    yFound = bool((left + temp[0] < x) & (x <= left + temp[0] + temp[1]))
+    zFound = bool((left + temp[0] + temp[1] < x) & (x <= left + temp[0] + temp[1] + temp[2]))
+    wFound = bool((left + temp[0] + temp[1] + temp[2] < x) & (x <= left + temp[0] + temp[1] + temp[2] + temp[3]))
+
+    ii = j
+    if xFound or yFound or zFound or wFound:
+        found_index[i] = j
+        if xFound:
+            found_shift[i] = 0
+            if (ii == tz - 1):
+                found_index[i] = ii-1
+                found_shift[i] = 5 #destroy at end by SD
+            if (ii == tz):
+                found_index[i] = 0
+                found_shift[i] = 5 #destroy at beginning by SD
+        elif yFound:
+            found_shift[i] = 1
+            if (ii == tz - 1):
+                found_shift[i] = 3 #create at end by SD
+            if (ii == tz):
+                found_index[i] = 0
+                found_shift[i] = 6 #create at beginning by SD
+        elif zFound:
+            found_shift[i] = 2 #destroy by CD
+        elif wFound:
+            found_shift[i] = 4 #create by CD
+            add_rand[i] = float((x - left - temp[0] - temp[1] - temp[2])) / float(temp[3])
+    else:
+        print("Error: no jump found for chain",i)
+
+    return
+
+
+@cuda.jit
 def choose_step_kernel(Z,shift_probs,sum_W_sorted,uniform_rand,rand_used,found_index,found_shift,add_rand,CD_flag):
     '''
     GPU function to calculate which entanglement process will be applied to each chain (Kuhn step shuffle, entanglement creation/destruction)
@@ -400,8 +509,8 @@ def apply_step_kernel(Z, QN, QN_first, QN_create_SDCD, chain_time, time_compensa
             new_t_cr[i,j] = t_cr[i,j-1]
             new_tau_CD[i,j] = tau_CD[i,j-1]
 
-    if sum_W_sorted[i] == 0:
-        print('Error: timestep size is infinity for chain',i)
+    # if sum_W_sorted[i] == 0:
+    #     print('Error: timestep size is infinity for chain',i)
 
     #set time step to be length of time to make single jump
     tdt[i] = 1.0 / sum_W_sorted[i]

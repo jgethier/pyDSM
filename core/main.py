@@ -645,7 +645,7 @@ class FSM_LINEAR(object):
                 for k in range(p*m**l,p*m**(l+1),m**l):
                     count+=1
                     corr_time.append(int(k/sampf))
-            print(len(corr_time))
+
             #initialize arrays for output
             data_corr = np.zeros(shape=(self.input_data['Nchains'],count,2),dtype=float) #hold average chain stress/com correlations 
             corr_array =np.zeros(shape=(len(time_array),self.input_data['Nchains']),dtype=float) #array to store correlation values for averaging (single chain) inside kernel

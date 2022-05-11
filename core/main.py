@@ -3,6 +3,7 @@ import sys
 import time
 import numpy as np
 from numba import cuda
+from numba.cuda.random import create_xoroshiro128p_states
 from alive_progress import alive_bar 
 import yaml
 import math
@@ -367,21 +368,29 @@ class FSM_LINEAR(object):
         
         #initialize random state and fill random variable arrays
         random_state = self.seed
-        gpu_rand.gpu_tauCD_gauss_rand(seed=random_state, discrete=discrete, nchains=self.input_data['Nchains'], count=250, SDtoggle=True,
-                                      CDflag=self.input_data['CD_flag'],gauss_rand=d_tau_CD_gauss_rand_SD, pcd_array = d_pcd_array, pcd_table_eq=d_pcd_table_eq, 
-                                      pcd_table_cr=d_pcd_table_cr,pcd_table_tau=d_pcd_table_tau,refill=False)
-
+        threadsperblock = 256
+        blockspergrid = (chain.QN.shape[0] + threadsperblock - 1)//threadsperblock
+        self.rng_states = create_xoroshiro128p_states(threadsperblock*blockspergrid,seed=random_state)
+        
+        # gpu_rand.gpu_tauCD_gauss_rand(seed=random_state, discrete=discrete, nchains=self.input_data['Nchains'], count=250, SDtoggle=True,
+        #                               CDflag=self.input_data['CD_flag'],gauss_rand=d_tau_CD_gauss_rand_SD, pcd_array = d_pcd_array, pcd_table_eq=d_pcd_table_eq, 
+        #                               pcd_table_cr=d_pcd_table_cr,pcd_table_tau=d_pcd_table_tau,refill=False)
+        gpu_rand.fill_gauss_rand_tauCD[blockspergrid,threadsperblock](self.rng_states, discrete, self.input_data['Nchains'], 250, True, self.input_data['CD_flag'],d_tau_CD_gauss_rand_SD, d_pcd_array, d_pcd_table_eq, 
+                                      d_pcd_table_cr,d_pcd_table_tau)
         #if CD flag is 1 (constraint dynamics is on), fill random gaussian array for new strands created by CD
         if self.input_data['CD_flag'] == 1:
             random_state += 1
-            gpu_rand.gpu_tauCD_gauss_rand(seed=random_state, discrete=discrete, nchains=self.input_data['Nchains'], count=250, SDtoggle=False, 
-                                          CDflag=self.input_data['CD_flag'],gauss_rand=d_tau_CD_gauss_rand_CD, pcd_array=d_pcd_array, 
-                                          pcd_table_eq=d_pcd_table_eq, pcd_table_cr=d_pcd_table_cr,pcd_table_tau=d_pcd_table_tau,refill=False)
-        
+            # gpu_rand.gpu_tauCD_gauss_rand(seed=random_state, discrete=discrete, nchains=self.input_data['Nchains'], count=250, SDtoggle=False, 
+            #                               CDflag=self.input_data['CD_flag'],gauss_rand=d_tau_CD_gauss_rand_CD, pcd_array=d_pcd_array, 
+            #                               pcd_table_eq=d_pcd_table_eq, pcd_table_cr=d_pcd_table_cr,pcd_table_tau=d_pcd_table_tau,refill=False)
+            gpu_rand.fill_gauss_rand_tauCD[blockspergrid,threadsperblock](self.rng_states, discrete, self.input_data['Nchains'], 250, False, 
+                                                                         self.input_data['CD_flag'],d_tau_CD_gauss_rand_CD, d_pcd_array, 
+                                                                         d_pcd_table_eq, d_pcd_table_cr,d_pcd_table_tau)
         #advance random seed number and fill uniform random array
         random_state += 1
-        gpu_rand.gpu_uniform_rand(seed=random_state, nchains=self.input_data['Nchains'], count=250, uniform_rand=d_uniform_rand,refill=False)
-        
+        #gpu_rand.gpu_uniform_rand(seed=random_state, nchains=self.input_data['Nchains'], count=250, uniform_rand=d_uniform_rand,refill=False)
+        gpu_rand.fill_uniform_rand[blockspergrid,threadsperblock](self.rng_states, self.input_data['Nchains'], 250, d_uniform_rand)
+
         #initialize arrays for chain time and entanglement lifetime
         chain_time = np.zeros(shape=self.input_data['Nchains'],dtype=float)
         time_resolution = self.input_data['tau_K']
@@ -458,7 +467,7 @@ class FSM_LINEAR(object):
         #set cuda grid dimensions
         dimBlock = (32,32)
         dimGrid_x = (self.input_data['Nchains']+dimBlock[0]-1)//dimBlock[0]
-        dimGrid_y = ((self.input_data['NK']+1)+dimBlock[1]-1)//dimBlock[1]
+        dimGrid_y = (self.input_data['NK']+dimBlock[1]-1)//dimBlock[1]
         dimGrid = (dimGrid_x,dimGrid_y)
         
         #flattened grid dimensions
@@ -468,7 +477,6 @@ class FSM_LINEAR(object):
         #initialize cuda streams
         stream1 = cuda.stream()
         stream2 = cuda.stream()
-        stream3 = cuda.stream()
         
         #SIMULATION STARTS -------------------------------------------------------------------------------------------------------------------------------
         
@@ -484,6 +492,8 @@ class FSM_LINEAR(object):
                 #start loop over number of times chains are synced
                 for x_sync in range(1,num_time_syncs+1):
                     
+                    t_init = time.time()
+
                     if x_sync == num_time_syncs:
                         next_sync_time = simulation_time
                     else:
@@ -491,28 +501,30 @@ class FSM_LINEAR(object):
                     
                     #initialize flags for chain sync (if chain times reach the sync time, flag goes up)
                     reach_flag_all = False
-                    ensemble_kernel.reset_chain_flag[blockspergrid,threadsperblock,stream3](d_reach_flag)
-                    stream3.synchronize()
+                    sum_reach_flags = 0
+                    ensemble_kernel.reset_chain_flag[blockspergrid,threadsperblock,stream2](d_reach_flag)
+                    #stream3.synchronize()
                     
                     while not reach_flag_all:
                         
                         #calculate probabilities for entangled strand of a chain (create, destroy, or shuffle)
                         ensemble_kernel.calc_probs_strands[dimGrid, dimBlock, stream1](d_Z,d_QN,d_flow,d_tdt,d_kappa,d_tau_CD,d_shift_probs,
-                                                                                    d_CDflag,d_CD_create_prefact)
-                        
+                                                                                    d_CDflag,d_CD_create_prefact,d_beta,d_NK)
+
                         #calculate probabilities at chain ends/dangling strand ends (create, destroy, or shuffle at ends)
-                        ensemble_kernel.calc_probs_chainends[blockspergrid, threadsperblock, stream2](d_Z,d_QN,d_shift_probs,d_CDflag,
-                                                                                            d_CD_create_prefact,d_beta,d_NK)
-                        stream2.synchronize()
+                        # ensemble_kernel.calc_probs_chainends[blockspergrid, threadsperblock, stream1](d_Z,d_QN,d_shift_probs,d_CDflag,
+                        #                                                                     d_CD_create_prefact,d_beta,d_NK)
+                        #stream2.synchronize()
 
                         #control chain time and stress calculation
-                        ensemble_kernel.time_control_kernel[blockspergrid, threadsperblock, stream3](d_Z,d_QN,d_QN_first,d_NK,d_chain_time,
+                        ensemble_kernel.time_control_kernel[blockspergrid, threadsperblock, stream2](d_Z,d_QN,d_QN_first,d_NK,d_chain_time,
                                                                                                     d_tdt,d_res,d_calc_type,d_flow,d_reach_flag,next_sync_time,
                                                                                                     max_sync_time,d_write_time,d_time_resolution)
-                        
+
                         #find jump type and location
                         ensemble_kernel.choose_step_kernel[blockspergrid, threadsperblock,stream1](d_Z, d_shift_probs, d_sum_W_sorted, d_uniform_rand, d_rand_used, 
                                                                                             d_found_index, d_found_shift,d_add_rand, d_CDflag)
+
                         # check_probs = d_shift_probs.copy_to_host()
                         # check_Z = d_Z.copy_to_host()
                         # if step_count == 0:
@@ -522,9 +534,10 @@ class FSM_LINEAR(object):
                         #     print(sum1)
                         # ensemble_kernel.choose_kernel[dimGrid, dimBlock,stream1](d_Z, d_shift_probs, d_sum_W_sorted, d_uniform_rand, d_rand_used, 
                         #                                                                     d_found_index, d_found_shift,d_add_rand, d_CDflag, d_NK)
-                        stream1.synchronize()
-                        stream3.synchronize()
-                        
+
+                        #stream1.synchronize()
+                        stream2.synchronize()
+
                         #apply jump move for each chain and update time of chain
                         ensemble_kernel.apply_step_kernel[blockspergrid,threadsperblock,stream1](d_Z, d_QN, d_QN_first, d_QN_create_SDCD,
                                                                                             d_chain_time,d_time_compensation,d_sum_W_sorted,
@@ -533,19 +546,24 @@ class FSM_LINEAR(object):
                                                                                             d_rand_used, d_add_rand, d_tau_CD_used_SD,
                                                                                             d_tau_CD_used_CD,d_tau_CD_gauss_rand_SD,
                                                                                             d_tau_CD_gauss_rand_CD)
-
-                        
-                        reach_flag_host = d_reach_flag.copy_to_host(stream=stream1)
-                        stream1.synchronize()
-                        
-                        #check if all chains reached time for sync
-                        sum_reach_flags = int(np.sum(reach_flag_host)) 
-                        
-                        #if all reach_flags are 1, sum should equal number of chains and all chains are synced
-                        reach_flag_all = (sum_reach_flags == int(self.input_data['Nchains'])) 
                         
                         #update step counter for arrays and array positions
                         step_count+=1
+
+                        #check every 250 jump processes if all chains reached time for sync
+                        if self.flow:
+                            reach_flag_host = d_reach_flag.copy_to_host(stream=stream2)
+                            stream2.synchronize()
+                            sum_reach_flags = int(np.sum(reach_flag_host)) 
+                        elif not self.flow and step_count == 250:
+                            reach_flag_host = d_reach_flag.copy_to_host(stream=stream2)
+                            stream2.synchronize()
+                            sum_reach_flags = int(np.sum(reach_flag_host)) 
+
+
+                        #if all reach_flags are 1, sum should equal number of chains and all chains are synced
+                        reach_flag_all = (sum_reach_flags == int(self.input_data['Nchains'])) 
+                        
 
                         #record entanglement lifetime distribution
                         if analytic==False:
@@ -558,23 +576,24 @@ class FSM_LINEAR(object):
 
                         #if random numbers are used (max array size is 250), change out the used values with new random numbers and advance the random seed number
                         if step_count == 250:
-                            
-                            random_state += 1
-                            gpu_rand.gpu_tauCD_gauss_rand(seed=random_state, discrete=discrete, nchains=self.input_data['Nchains'], count=d_tau_CD_used_SD,
-                                                        SDtoggle=True,CDflag=self.input_data['CD_flag'], gauss_rand=d_tau_CD_gauss_rand_SD, pcd_array=d_pcd_array,
-                                                        pcd_table_eq=d_pcd_table_eq,pcd_table_cr=d_pcd_table_cr, pcd_table_tau=d_pcd_table_tau, refill=True)
 
+                            #random_state += 1
+                            # gpu_rand.gpu_tauCD_gauss_rand(seed=random_state, discrete=discrete, nchains=self.input_data['Nchains'], count=d_tau_CD_used_SD,
+                            #                             SDtoggle=True,CDflag=self.input_data['CD_flag'], gauss_rand=d_tau_CD_gauss_rand_SD, pcd_array=d_pcd_array,
+                            #                             pcd_table_eq=d_pcd_table_eq,pcd_table_cr=d_pcd_table_cr, pcd_table_tau=d_pcd_table_tau, refill=True)
+                            gpu_rand.refill_gauss_rand_tauCD[blockspergrid,threadsperblock](self.rng_states, discrete, self.input_data['Nchains'], d_tau_CD_used_SD, True, self.input_data['CD_flag'], 
+                                                                                            d_tau_CD_gauss_rand_SD, d_pcd_array,d_pcd_table_eq,d_pcd_table_cr, d_pcd_table_tau)
                             if self.input_data['CD_flag'] == 1:
-                                random_state += 1
-                                gpu_rand.gpu_tauCD_gauss_rand(seed=random_state, discrete=discrete, nchains=self.input_data['Nchains'], count=d_tau_CD_used_CD, 
-                                                            SDtoggle=False,CDflag=self.input_data['CD_flag'], gauss_rand=d_tau_CD_gauss_rand_CD,pcd_array=d_pcd_array,
-                                                            pcd_table_eq=d_pcd_table_eq, pcd_table_cr=d_pcd_table_cr, pcd_table_tau=d_pcd_table_tau, refill=True)
-                            
-                            random_state += 1
-                            gpu_rand.gpu_uniform_rand(seed=random_state, nchains=self.input_data['Nchains'], count=d_rand_used, uniform_rand=d_uniform_rand,refill=True)
-                            
+                                #random_state += 1
+                                # gpu_rand.gpu_tauCD_gauss_rand(seed=random_state, discrete=discrete, nchains=self.input_data['Nchains'], count=d_tau_CD_used_CD, 
+                                #                             SDtoggle=False,CDflag=self.input_data['CD_flag'], gauss_rand=d_tau_CD_gauss_rand_CD,pcd_array=d_pcd_array,
+                                #                             pcd_table_eq=d_pcd_table_eq, pcd_table_cr=d_pcd_table_cr, pcd_table_tau=d_pcd_table_tau, refill=True)
+                                gpu_rand.refill_gauss_rand_tauCD[blockspergrid,threadsperblock](self.rng_states, discrete, self.input_data['Nchains'], d_tau_CD_used_CD, False, self.input_data['CD_flag'], 
+                                                                                            d_tau_CD_gauss_rand_CD, d_pcd_array,d_pcd_table_eq,d_pcd_table_cr, d_pcd_table_tau)
+                            #random_state += 1
+                            # gpu_rand.gpu_uniform_rand(seed=random_state, nchains=self.input_data['Nchains'], count=d_rand_used, uniform_rand=d_uniform_rand,refill=True)
+                            gpu_rand.refill_uniform_rand[blockspergrid,threadsperblock](self.rng_states, self.input_data['Nchains'], d_rand_used, d_uniform_rand)
                             step_count = 0
-                    
 
                     #write result of all chains to file
                     if self.flow: #if flow, calculate flow stress tensor for each chain

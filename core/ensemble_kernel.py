@@ -62,7 +62,7 @@ def calc_flow_stress(Z,QN,stress):
 
         
 @cuda.jit
-def calc_probs_strands(Z,QN,flow,tdt,kappa,tau_CD,shift_probs,CD_flag,CD_create_prefact):
+def calc_probs_strands(Z,QN,flow,tdt,kappa,tau_CD,shift_probs,CD_flag,CD_create_prefact,beta,NK):
     '''
     GPU function to calculate probabilities for Kuhn step shuffling, entanglement creation or destruction
     Inputs: Z - number of entangled strands for each chain
@@ -88,6 +88,8 @@ def calc_probs_strands(Z,QN,flow,tdt,kappa,tau_CD,shift_probs,CD_flag,CD_create_
         return
     
     shift_probs[i,j,0] = shift_probs[i,j,1] = shift_probs[i,j,2] = shift_probs[i,j,3] = 0.0
+    shift_probs[i,tz,0] = shift_probs[i,tz,1] = shift_probs[i,tz,2] = shift_probs[i,tz,3] = 0.0
+    shift_probs[i,tz-1,0] = shift_probs[i,tz-1,1] = shift_probs[i,tz-1,2] = shift_probs[i,tz-1,3] = 0.0
 
     tcd = tau_CD[i,j]
     
@@ -147,7 +149,45 @@ def calc_probs_strands(Z,QN,flow,tdt,kappa,tau_CD,shift_probs,CD_flag,CD_create_
         if CD_flag[0]==1:
                 shift_probs[i, j, 2] = tcd
                 shift_probs[i, j, 3] = CD_create_prefact[0]*(QN_i[3]-1.0)
+
+    #####CHAIN ENDS#########
+
+    if j == 0:
+        QNfirst = QN[i,0]
+        QNlast = QN[i,tz-1]
+
+        if tz == 1:
+            shift_probs[i,tz-1,1] = (1.0 / (beta[0]*NK[0]))           
+            shift_probs[i,tz,1] = (1.0 / (beta[0]*NK[0]))
+
+        else:
+            if QNfirst[3] == 1.0: #destruction by SD at the beginning
+                QNfirst_n = QN[i,1]
+                if tz == 2:
+                    c = QNfirst_n[3] + 0.25
+                else:
+                    c = QNfirst_n[3] * 0.5
+
+                shift_probs[i,tz,0] = (1.0 / (c+0.75))
+
+            else: #creation by SD at the beginning
+                shift_probs[i,tz,1] = (2.0 / (beta[0] * (QNfirst[3]+0.5)))
+
+            if QNlast[3] == 1.0: #destruction by SD at the end
+
+                QNlast_p = QN[i,tz-2]
+                if tz == 2:
+                    c = QNlast_p[3] + 0.25
+                else:
+                    c = QNlast_p[3] * 0.5
+                shift_probs[i,tz-1,0] = (1.0 / (c+0.75))
                 
+            else: #creation by SD at the end
+                shift_probs[i,tz-1,1] = (2.0 / (beta[0] * (QNlast[3]+0.5) ))
+
+        if CD_flag[0]==1:
+            shift_probs[i,tz-1,3] = CD_create_prefact[0]*(QNlast[3]-1.0)   
+
     return
 
 

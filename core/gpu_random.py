@@ -1,16 +1,15 @@
-import numpy as np
 from numba import cuda
 import math
 
 from numba.cuda.random import create_xoroshiro128p_states, xoroshiro128p_uniform_float64, xoroshiro128p_normal_float64
 
 
-def gpu_uniform_rand(seed, nchains, count, uniform_rand, refill=False):
+def gpu_uniform_rand(rng_states, nchains, count, uniform_rand, refill=False):
 
     threadsperblock = 256
     blockspergrid = (nchains + threadsperblock - 1) // threadsperblock
 
-    rng_states = create_xoroshiro128p_states(threadsperblock*blockspergrid, seed=seed)
+    # rng_states = create_xoroshiro128p_states(threadsperblock*blockspergrid, seed=seed)
 
     if refill:
         refill_uniform_rand[blockspergrid,threadsperblock](rng_states, nchains, count, uniform_rand)

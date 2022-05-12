@@ -680,8 +680,8 @@ class FSM_LINEAR(object):
                 #make combined result array and write to file
                 with open('./DSM_results/MSD_result_%d.txt'%self.sim_ID, "w") as f:
                     f.write('time, MSD, Error\n')
-                    for m in range(0,len(time_array)):
-                            f.write("%d, %.4f, %.4f \n"%(time_array[m],average_corr[m],average_err[m]))
+                    for m in range(0,len(corr_time)):
+                            f.write("%d, %.4f, %.4f \n"%(corr_time[m],average_corr[m],average_err[m]))
                 print('Done.')
                 print('MSD results written to MSD_result_%d.txt'%self.sim_ID)
 

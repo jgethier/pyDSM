@@ -608,7 +608,7 @@ class FSM_LINEAR(object):
             num_chain_blocks = math.ceil(self.input_data['Nchains']/1000)
 
             num_times = math.ceil(self.input_data['sim_time']/self.input_data['tau_K'])+1
-            num_times = math.ceil(100000/1)+ 1
+
             #parameters for block transformation
             p = 8
             m = 2

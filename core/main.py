@@ -638,7 +638,7 @@ class FSM_LINEAR(object):
 
                 if calc_type == 1: #stress data if EQ_calc is 'stress'
                     stress_array = np.array(self.load_results(self.stress_output,block_num=n,num_chains=num_chains)) 
-                    rawdata = np.reshape(stress_array,(1,num_times,1000)) #reshape stress array  
+                    rawdata = np.reshape(stress_array,(1,num_times,num_chains)) #reshape stress array  
                     
                 elif calc_type == 2: #CoM data if EQ_calc is 'msd' (this is a little messy, since each dimension is stored separately)
                     com_array_x = np.array(self.load_results(self.com_output_x,block_num=n,num_chains=num_chains)) #load center of mass in x file
@@ -646,11 +646,11 @@ class FSM_LINEAR(object):
                     com_array_z = np.array(self.load_results(self.com_output_z,block_num=n,num_chains=num_chains)) #load center of mass in z file
 
                     rawdata = np.array([com_array_x,com_array_y,com_array_z])
-                    rawdata = np.array(np.reshape(rawdata,(3,num_times,1000)))
+                    rawdata = np.array(np.reshape(rawdata,(3,num_times,num_chains)))
                     
                 #initialize arrays for output
-                data_corr = np.zeros(shape=(1000,count,2),dtype=float) #hold average chain stress/com correlations 
-                corr_array =np.zeros(shape=(num_times,1000),dtype=float) #array to store correlation values for averaging (single chain) inside kernel
+                data_corr = np.zeros(shape=(num_chains,count,2),dtype=float) #hold average chain stress/com correlations 
+                corr_array =np.zeros(shape=(num_times,num_chains),dtype=float) #array to store correlation values for averaging (single chain) inside kernel
 
                 #transfer to device
                 d_data_corr = cuda.to_device(data_corr)

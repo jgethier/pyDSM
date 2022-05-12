@@ -202,19 +202,30 @@ class FSM_LINEAR(object):
         #keeping track of the last simulation time for beginning of next array
         self.old_sync_time = time
     
-    def load_results(self,filename,result_array=[]):
+    def load_results(self,filename,block_num,num_chains):
         '''
-        Load in binary .dat file into the result array
+        Load in part of the binary .dat file into the result array
+        Inputs: filename - filename of the data file
+                block_num - chain block number (total chains split into n blocks of size 1000)
+                num_chains - block_num*1000
+        Returns: an array of data read from filename
         '''
+        result_array = []
         with open(filename,'rb') as f:
             try:
                 while True:
                     data = pickle.load(f)
                     for j in data:
-                        result_array.append(j)
+                        if block_num == 1:
+                            first_idx = 1
+                        else:
+                            first_idx = self.old_num_chains
+                        last_idx = num_chains+1
+                        result_array.append(j[first_idx:last_idx])
             except EOFError:
                 pass
 
+        self.old_num_chains = num_chains+1
         return result_array
 
     def main(self):
@@ -372,23 +383,15 @@ class FSM_LINEAR(object):
         blockspergrid = (chain.QN.shape[0] + threadsperblock - 1)//threadsperblock
         self.rng_states = create_xoroshiro128p_states(threadsperblock*blockspergrid,seed=random_state)
         
-        # gpu_rand.gpu_tauCD_gauss_rand(seed=random_state, discrete=discrete, nchains=self.input_data['Nchains'], count=250, SDtoggle=True,
-        #                               CDflag=self.input_data['CD_flag'],gauss_rand=d_tau_CD_gauss_rand_SD, pcd_array = d_pcd_array, pcd_table_eq=d_pcd_table_eq, 
-        #                               pcd_table_cr=d_pcd_table_cr,pcd_table_tau=d_pcd_table_tau,refill=False)
         gpu_rand.fill_gauss_rand_tauCD[blockspergrid,threadsperblock](self.rng_states, discrete, self.input_data['Nchains'], 250, True, self.input_data['CD_flag'],d_tau_CD_gauss_rand_SD, d_pcd_array, d_pcd_table_eq, 
                                       d_pcd_table_cr,d_pcd_table_tau)
+        
         #if CD flag is 1 (constraint dynamics is on), fill random gaussian array for new strands created by CD
         if self.input_data['CD_flag'] == 1:
-            random_state += 1
-            # gpu_rand.gpu_tauCD_gauss_rand(seed=random_state, discrete=discrete, nchains=self.input_data['Nchains'], count=250, SDtoggle=False, 
-            #                               CDflag=self.input_data['CD_flag'],gauss_rand=d_tau_CD_gauss_rand_CD, pcd_array=d_pcd_array, 
-            #                               pcd_table_eq=d_pcd_table_eq, pcd_table_cr=d_pcd_table_cr,pcd_table_tau=d_pcd_table_tau,refill=False)
             gpu_rand.fill_gauss_rand_tauCD[blockspergrid,threadsperblock](self.rng_states, discrete, self.input_data['Nchains'], 250, False, 
                                                                          self.input_data['CD_flag'],d_tau_CD_gauss_rand_CD, d_pcd_array, 
                                                                          d_pcd_table_eq, d_pcd_table_cr,d_pcd_table_tau)
-        #advance random seed number and fill uniform random array
-        random_state += 1
-        #gpu_rand.gpu_uniform_rand(seed=random_state, nchains=self.input_data['Nchains'], count=250, uniform_rand=d_uniform_rand,refill=False)
+        
         gpu_rand.fill_uniform_rand[blockspergrid,threadsperblock](self.rng_states, self.input_data['Nchains'], 250, d_uniform_rand)
 
         #initialize arrays for chain time and entanglement lifetime
@@ -438,7 +441,7 @@ class FSM_LINEAR(object):
         
         #set timesteps and begin simulation
         simulation_time = self.input_data['sim_time'] #total simulation time
-        step_count = 0 #used to calculate number of jump processes for checking random number arrays
+        step_count = 0                                #used to calculate number of jump processes for checking random number arrays
         enttime_bins = np.zeros(shape=(20000),dtype=int) #bins to hold entanglement lifetime distributions
         
         #initialize some time constants used for simulation
@@ -488,11 +491,9 @@ class FSM_LINEAR(object):
 
             #defer memory deallocation until after simulation is done
             with cuda.defer_cleanup():
-
+                
                 #start loop over number of times chains are synced
                 for x_sync in range(1,num_time_syncs+1):
-                    
-                    t_init = time.time()
 
                     if x_sync == num_time_syncs:
                         next_sync_time = simulation_time
@@ -502,42 +503,27 @@ class FSM_LINEAR(object):
                     #initialize flags for chain sync (if chain times reach the sync time, flag goes up)
                     reach_flag_all = False
                     sum_reach_flags = 0
-                    ensemble_kernel.reset_chain_flag[blockspergrid,threadsperblock,stream2](d_reach_flag)
-                    #stream3.synchronize()
+                    ensemble_kernel.reset_chain_flag[blockspergrid,threadsperblock,stream1](d_reach_flag)
                     
                     while not reach_flag_all:
                         
                         #calculate probabilities for entangled strand of a chain (create, destroy, or shuffle)
                         ensemble_kernel.calc_probs_strands[dimGrid, dimBlock, stream1](d_Z,d_QN,d_flow,d_tdt,d_kappa,d_tau_CD,d_shift_probs,
                                                                                     d_CDflag,d_CD_create_prefact,d_beta,d_NK)
-
-                        #calculate probabilities at chain ends/dangling strand ends (create, destroy, or shuffle at ends)
-                        # ensemble_kernel.calc_probs_chainends[blockspergrid, threadsperblock, stream1](d_Z,d_QN,d_shift_probs,d_CDflag,
-                        #                                                                     d_CD_create_prefact,d_beta,d_NK)
-                        #stream2.synchronize()
-
+                        
                         #control chain time and stress calculation
-                        ensemble_kernel.time_control_kernel[blockspergrid, threadsperblock, stream2](d_Z,d_QN,d_QN_first,d_NK,d_chain_time,
+                        ensemble_kernel.time_control_kernel[blockspergrid, threadsperblock, stream1](d_Z,d_QN,d_QN_first,d_NK,d_chain_time,
                                                                                                     d_tdt,d_res,d_calc_type,d_flow,d_reach_flag,next_sync_time,
                                                                                                     max_sync_time,d_write_time,d_time_resolution)
-
+                        
                         #find jump type and location
                         ensemble_kernel.choose_step_kernel[blockspergrid, threadsperblock,stream1](d_Z, d_shift_probs, d_sum_W_sorted, d_uniform_rand, d_rand_used, 
                                                                                             d_found_index, d_found_shift,d_add_rand, d_CDflag)
-
-                        # check_probs = d_shift_probs.copy_to_host()
-                        # check_Z = d_Z.copy_to_host()
-                        # if step_count == 0:
-                        #     sum1=0
-                        #     for j in check_probs[0,0:int(check_Z[0])+1]:
-                        #         sum1 += j[0] + j[1] + j[2] + j[3]
-                        #     print(sum1)
+                        
                         # ensemble_kernel.choose_kernel[dimGrid, dimBlock,stream1](d_Z, d_shift_probs, d_sum_W_sorted, d_uniform_rand, d_rand_used, 
                         #                                                                     d_found_index, d_found_shift,d_add_rand, d_CDflag, d_NK)
 
-                        #stream1.synchronize()
-                        stream2.synchronize()
-
+                        
                         #apply jump move for each chain and update time of chain
                         ensemble_kernel.apply_step_kernel[blockspergrid,threadsperblock,stream1](d_Z, d_QN, d_QN_first, d_QN_create_SDCD,
                                                                                             d_chain_time,d_time_compensation,d_sum_W_sorted,
@@ -546,25 +532,21 @@ class FSM_LINEAR(object):
                                                                                             d_rand_used, d_add_rand, d_tau_CD_used_SD,
                                                                                             d_tau_CD_used_CD,d_tau_CD_gauss_rand_SD,
                                                                                             d_tau_CD_gauss_rand_CD)
-                        
+
                         #update step counter for arrays and array positions
                         step_count+=1
-
-                        #check every 250 jump processes if all chains reached time for sync
+                        
+                        
                         if self.flow:
-                            reach_flag_host = d_reach_flag.copy_to_host(stream=stream2)
-                            stream2.synchronize()
+                            reach_flag_host = d_reach_flag.copy_to_host(stream=stream1)
                             sum_reach_flags = int(np.sum(reach_flag_host)) 
-                        elif not self.flow and step_count == 250:
-                            reach_flag_host = d_reach_flag.copy_to_host(stream=stream2)
-                            stream2.synchronize()
+                        elif not self.flow and step_count % 250 == 0: #check every 250 jump processes if all chains reached time for sync
+                            reach_flag_host = d_reach_flag.copy_to_host(stream=stream1)
                             sum_reach_flags = int(np.sum(reach_flag_host)) 
-
 
                         #if all reach_flags are 1, sum should equal number of chains and all chains are synced
                         reach_flag_all = (sum_reach_flags == int(self.input_data['Nchains'])) 
-                        
-
+                    
                         #record entanglement lifetime distribution
                         if analytic==False:
                             ft = d_f_t.copy_to_host(stream=stream1)
@@ -573,28 +555,21 @@ class FSM_LINEAR(object):
                                 if ft[k] > 0.0 and ft[k] < 20:
                                     enttime_bins[math.floor(ft[k]*1000)]+=1
 
-
+                       
                         #if random numbers are used (max array size is 250), change out the used values with new random numbers and advance the random seed number
                         if step_count == 250:
 
-                            #random_state += 1
-                            # gpu_rand.gpu_tauCD_gauss_rand(seed=random_state, discrete=discrete, nchains=self.input_data['Nchains'], count=d_tau_CD_used_SD,
-                            #                             SDtoggle=True,CDflag=self.input_data['CD_flag'], gauss_rand=d_tau_CD_gauss_rand_SD, pcd_array=d_pcd_array,
-                            #                             pcd_table_eq=d_pcd_table_eq,pcd_table_cr=d_pcd_table_cr, pcd_table_tau=d_pcd_table_tau, refill=True)
                             gpu_rand.refill_gauss_rand_tauCD[blockspergrid,threadsperblock](self.rng_states, discrete, self.input_data['Nchains'], d_tau_CD_used_SD, True, self.input_data['CD_flag'], 
                                                                                             d_tau_CD_gauss_rand_SD, d_pcd_array,d_pcd_table_eq,d_pcd_table_cr, d_pcd_table_tau)
                             if self.input_data['CD_flag'] == 1:
-                                #random_state += 1
-                                # gpu_rand.gpu_tauCD_gauss_rand(seed=random_state, discrete=discrete, nchains=self.input_data['Nchains'], count=d_tau_CD_used_CD, 
-                                #                             SDtoggle=False,CDflag=self.input_data['CD_flag'], gauss_rand=d_tau_CD_gauss_rand_CD,pcd_array=d_pcd_array,
-                                #                             pcd_table_eq=d_pcd_table_eq, pcd_table_cr=d_pcd_table_cr, pcd_table_tau=d_pcd_table_tau, refill=True)
                                 gpu_rand.refill_gauss_rand_tauCD[blockspergrid,threadsperblock](self.rng_states, discrete, self.input_data['Nchains'], d_tau_CD_used_CD, False, self.input_data['CD_flag'], 
                                                                                             d_tau_CD_gauss_rand_CD, d_pcd_array,d_pcd_table_eq,d_pcd_table_cr, d_pcd_table_tau)
-                            #random_state += 1
-                            # gpu_rand.gpu_uniform_rand(seed=random_state, nchains=self.input_data['Nchains'], count=d_rand_used, uniform_rand=d_uniform_rand,refill=True)
+                           
                             gpu_rand.refill_uniform_rand[blockspergrid,threadsperblock](self.rng_states, self.input_data['Nchains'], d_rand_used, d_uniform_rand)
                             step_count = 0
 
+
+                   
                     #write result of all chains to file
                     if self.flow: #if flow, calculate flow stress tensor for each chain
                         ensemble_kernel.calc_flow_stress[blockspergrid,threadsperblock](d_Z,d_QN,d_res)
@@ -603,10 +578,9 @@ class FSM_LINEAR(object):
                         self.write_stress(x_sync,next_sync_time,res_host)
                     elif calc_type == 2: #if MSD, write CoM 
                         self.write_com(x_sync,next_sync_time,res_host)
-
+                  
                     #update progress bar
                     bar()
-
             
         #SIMULATION ENDS---------------------------------------------------------------------------------------------------------------------------
             
@@ -635,42 +609,15 @@ class FSM_LINEAR(object):
         
         if not self.flow:
             #read in data files for autocorrelation function and split into blocks of 1000 chains (helps prevent reaching maximum memory)
-            num_blocks = int(self.input_data['Nchains']/1000)
+            num_chain_blocks = math.ceil(self.input_data['Nchains']/1000)
 
-            if calc_type == 1: #stress data if EQ_calc is 'stress'
-                print("Loading stress data for G(t) calculation...",end="",flush=True)
-                stress_array = np.array(self.load_results('./DSM_results/stress_1.dat')) 
-                time_array = stress_array[0:,0].astype(int) # tau_K values
-                stress_array = np.array_split(stress_array[0:,1:],num_blocks,axis=1)
-                sampf = 1/(time_array[1]-time_array[0]) #normalize time by smallest resolution
-                rawdata = np.array(np.reshape(stress_array,(num_blocks,len(time_array),1000))) #reshape stress array  
-                print("Done.")
-                
-            elif calc_type == 2: #CoM data if EQ_calc is 'msd' (this is a little messy, since each dimension is stored separately)
-                print("Loading CoM data for MSD calculation...",end="",flush=True)
-                com_array_x = np.array(self.load_results(self.com_output_x)) #load center of mass in x file
-                com_array_y = np.array(self.load_results(self.com_output_y)) #load center of mass in y file
-                com_array_z = np.array(self.load_results(self.com_output_z)) #load center of mass in z file
-
-                time_array = com_array_x[0:,0].astype(int) # tau_K values
-                sampf = 1/(time_array[1]-time_array[0]) #normalize time by smallest resolution
-
-                com_array_x = np.array_split(com_array_x[0:,1:],num_blocks,axis=1)
-                com_array_y = np.array_split(com_array_y[0:,1:],num_blocks,axis=1)
-                com_array_z = np.array_split(com_array_z[0:,1:],num_blocks,axis=1)
-
-                rawdata = np.array([com_array_x[0:,0:,1:],com_array_y[0:,0:,1:],com_array_z[0:, 0:,1:]])
-                rawdata = np.array(np.reshape(rawdata,(3,num_blocks,len(time_array),self.input_data['Nchains'])))
-                print("Done.")
-                
-                
-            #calculate correlation for each chain and take the average
-            print("Calculating correlation function, this may take some time...",end="",flush=True)
-
+            num_times = math.ceil(self.input_data['sim_time']/self.input_data['tau_K'])+1
+            num_times = math.ceil(100000/1)+ 1
             #parameters for block transformation
             p = 8
             m = 2
-            uplim=int(math.floor(np.log(len(time_array)/p)/np.log(m)))
+            uplim=int(math.floor(np.log(num_times/p)/np.log(m)))
+            sampf = 1/self.input_data['tau_K']
 
             #counter for initializing final array size and set the correlated times in corr_time array
             count = 0
@@ -683,22 +630,35 @@ class FSM_LINEAR(object):
                     count+=1
                     corr_time.append(int(k/sampf))
 
-            
             average_corr = np.zeros(shape=len(corr_time))
             average_error = np.zeros(shape=len(corr_time))
-            for m in range(0,len(rawdata)):
-                if calc_type == 1:
-                    raw_data = rawdata[m].reshape(1,len(time_array),1000)
-                elif calc_type == 2:
-                    raw_data = rawdata[m].reshape(3,len(time_array),1000)
 
+            print("Loading stress data and calculating correlation function, this may take some time...",end="",flush=True)
+            for n in range(1,num_chain_blocks+1):
+                if n == num_chain_blocks:
+                    num_chains = self.input_data['Nchains']
+                else:
+                    num_chains = n*1000
+
+                if calc_type == 1: #stress data if EQ_calc is 'stress'
+                    stress_array = np.array(self.load_results(self.stress_output,block_num=n,num_chains=num_chains)) 
+                    rawdata = np.reshape(stress_array,(1,num_times,1000)) #reshape stress array  
+                    
+                elif calc_type == 2: #CoM data if EQ_calc is 'msd' (this is a little messy, since each dimension is stored separately)
+                    com_array_x = np.array(self.load_results(self.com_output_x,block_num=n,num_chains=num_chains)) #load center of mass in x file
+                    com_array_y = np.array(self.load_results(self.com_output_y,block_num=n,num_chains=num_chains)) #load center of mass in y file
+                    com_array_z = np.array(self.load_results(self.com_output_z,block_num=n,num_chains=num_chains)) #load center of mass in z file
+
+                    rawdata = np.array([com_array_x,com_array_y,com_array_z])
+                    rawdata = np.array(np.reshape(rawdata,(3,num_times,1000)))
+                    
                 #initialize arrays for output
                 data_corr = np.zeros(shape=(1000,count,2),dtype=float) #hold average chain stress/com correlations 
-                corr_array =np.zeros(shape=(len(time_array),1000),dtype=float) #array to store correlation values for averaging (single chain) inside kernel
+                corr_array =np.zeros(shape=(num_times,1000),dtype=float) #array to store correlation values for averaging (single chain) inside kernel
 
                 #transfer to device
                 d_data_corr = cuda.to_device(data_corr)
-                d_rawdata = cuda.to_device(raw_data)
+                d_rawdata = cuda.to_device(rawdata)
                 d_corr_array = cuda.to_device(corr_array)
 
                 #run the block transformation and calculate correlation with error

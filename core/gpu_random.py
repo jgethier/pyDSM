@@ -4,35 +4,35 @@ import math
 from numba.cuda.random import create_xoroshiro128p_states, xoroshiro128p_uniform_float64, xoroshiro128p_normal_float64
 
 
-def gpu_uniform_rand(rng_states, nchains, count, uniform_rand, refill=False):
+# def gpu_uniform_rand(seed, nchains, count, uniform_rand, refill=False):
 
-    threadsperblock = 256
-    blockspergrid = (nchains + threadsperblock - 1) // threadsperblock
+#     threadsperblock = 256
+#     blockspergrid = (nchains + threadsperblock - 1) // threadsperblock
 
-    # rng_states = create_xoroshiro128p_states(threadsperblock*blockspergrid, seed=seed)
+#     rng_states = create_xoroshiro128p_states(threadsperblock*blockspergrid, seed=seed)
 
-    if refill:
-        refill_uniform_rand[blockspergrid,threadsperblock](rng_states, nchains, count, uniform_rand)
-    else:
-        fill_uniform_rand[blockspergrid,threadsperblock](rng_states, nchains, count, uniform_rand)
+#     if refill:
+#         refill_uniform_rand[blockspergrid,threadsperblock](rng_states, nchains, count, uniform_rand)
+#     else:
+#         fill_uniform_rand[blockspergrid,threadsperblock](rng_states, nchains, count, uniform_rand)
 
-    return
+#     return
 
 
-def gpu_tauCD_gauss_rand(seed, discrete, nchains, count, CDflag, SDtoggle, gauss_rand, pcd_array, pcd_table_eq, pcd_table_cr, pcd_table_tau, refill=False):
+# def gpu_tauCD_gauss_rand(seed, discrete, nchains, count, CDflag, SDtoggle, gauss_rand, pcd_array, pcd_table_eq, pcd_table_cr, pcd_table_tau, refill=False):
 
-    threadsperblock = 256
-    blockspergrid = (nchains + threadsperblock - 1) // threadsperblock
+#     threadsperblock = 256
+#     blockspergrid = (nchains + threadsperblock - 1) // threadsperblock
 
-    rng_states = create_xoroshiro128p_states(threadsperblock * blockspergrid, seed=seed)
+#     rng_states = create_xoroshiro128p_states(threadsperblock * blockspergrid, seed=seed)
 
-    if refill:
-        refill_gauss_rand_tauCD[blockspergrid,threadsperblock](rng_states, discrete, nchains, count, SDtoggle, CDflag, gauss_rand, pcd_array, pcd_table_eq, pcd_table_cr, pcd_table_tau)
+#     if refill:
+#         refill_gauss_rand_tauCD[blockspergrid,threadsperblock](rng_states, discrete, nchains, count, SDtoggle, CDflag, gauss_rand, pcd_array, pcd_table_eq, pcd_table_cr, pcd_table_tau)
 
-    else:
-        fill_gauss_rand_tauCD[blockspergrid,threadsperblock](rng_states, discrete, nchains, count, SDtoggle, CDflag, gauss_rand, pcd_array, pcd_table_eq, pcd_table_cr, pcd_table_tau)
+#     else:
+#         fill_gauss_rand_tauCD[blockspergrid,threadsperblock](rng_states, discrete, nchains, count, SDtoggle, CDflag, gauss_rand, pcd_array, pcd_table_eq, pcd_table_cr, pcd_table_tau)
 
-    return
+#     return
 
 
 @cuda.jit

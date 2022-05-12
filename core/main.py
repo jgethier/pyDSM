@@ -228,8 +228,20 @@ class FSM_LINEAR(object):
         self.old_num_chains = num_chains+1
         return result_array
 
+
     def main(self):
         #set variables and start simulation (also any post-processing after simulation is completed)
+
+        #set cuda grid dimensions
+        dimBlock = (32,32)
+        dimGrid_x = (self.input_data['Nchains']+dimBlock[0]-1)//dimBlock[0]
+        dimGrid_y = (self.input_data['NK']+dimBlock[1]-1)//dimBlock[1]
+        dimGrid = (dimGrid_x,dimGrid_y)
+        
+        #flattened grid dimensions
+        threadsperblock = 256
+        blockspergrid = (self.input_data['Nchains'] + threadsperblock - 1)//threadsperblock
+
 
         #if CD_flag is set (constraint dynamics is on), set probability of CD parameters with analytic expression
         if self.input_data['CD_flag']==1 and self.input_data['architecture']=='linear':
@@ -379,8 +391,6 @@ class FSM_LINEAR(object):
         
         #initialize random state and fill random variable arrays
         random_state = self.seed
-        threadsperblock = 256
-        blockspergrid = (chain.QN.shape[0] + threadsperblock - 1)//threadsperblock
         self.rng_states = create_xoroshiro128p_states(threadsperblock*blockspergrid,seed=random_state)
         
         gpu_rand.fill_gauss_rand_tauCD[blockspergrid,threadsperblock](self.rng_states, discrete, self.input_data['Nchains'], 250, True, self.input_data['CD_flag'],d_tau_CD_gauss_rand_SD, d_pcd_array, d_pcd_table_eq, 
@@ -439,7 +449,7 @@ class FSM_LINEAR(object):
         d_tau_CD_used_SD=cuda.to_device(tau_CD_used_SD)
         d_tau_CD_used_CD=cuda.to_device(tau_CD_used_CD)
         
-        #set timesteps and begin simulation
+        #set simulation time and entanglement lifetime array
         simulation_time = self.input_data['sim_time'] #total simulation time
         step_count = 0                                #used to calculate number of jump processes for checking random number arrays
         enttime_bins = np.zeros(shape=(20000),dtype=int) #bins to hold entanglement lifetime distributions
@@ -467,19 +477,6 @@ class FSM_LINEAR(object):
         #calculate number of time syncs based on max_sync_time
         num_time_syncs = int(math.ceil(self.input_data['sim_time'] / max_sync_time))
         
-        #set cuda grid dimensions
-        dimBlock = (32,32)
-        dimGrid_x = (self.input_data['Nchains']+dimBlock[0]-1)//dimBlock[0]
-        dimGrid_y = (self.input_data['NK']+dimBlock[1]-1)//dimBlock[1]
-        dimGrid = (dimGrid_x,dimGrid_y)
-        
-        #flattened grid dimensions
-        threadsperblock = 256
-        blockspergrid = (chain.QN.shape[0] + threadsperblock - 1)//threadsperblock
-        
-        #initialize cuda streams
-        stream1 = cuda.stream()
-        stream2 = cuda.stream()
         
         #SIMULATION STARTS -------------------------------------------------------------------------------------------------------------------------------
         
@@ -503,21 +500,21 @@ class FSM_LINEAR(object):
                     #initialize flags for chain sync (if chain times reach the sync time, flag goes up)
                     reach_flag_all = False
                     sum_reach_flags = 0
-                    ensemble_kernel.reset_chain_flag[blockspergrid,threadsperblock,stream1](d_reach_flag)
+                    ensemble_kernel.reset_chain_flag[blockspergrid,threadsperblock](d_reach_flag)
                     
                     while not reach_flag_all:
                         
                         #calculate probabilities for entangled strand of a chain (create, destroy, or shuffle)
-                        ensemble_kernel.calc_probs_strands[dimGrid, dimBlock, stream1](d_Z,d_QN,d_flow,d_tdt,d_kappa,d_tau_CD,d_shift_probs,
+                        ensemble_kernel.calc_probs_strands[dimGrid, dimBlock](d_Z,d_QN,d_flow,d_tdt,d_kappa,d_tau_CD,d_shift_probs,
                                                                                     d_CDflag,d_CD_create_prefact,d_beta,d_NK)
                         
                         #control chain time and stress calculation
-                        ensemble_kernel.time_control_kernel[blockspergrid, threadsperblock, stream1](d_Z,d_QN,d_QN_first,d_NK,d_chain_time,
+                        ensemble_kernel.time_control_kernel[blockspergrid, threadsperblock](d_Z,d_QN,d_QN_first,d_NK,d_chain_time,
                                                                                                     d_tdt,d_res,d_calc_type,d_flow,d_reach_flag,next_sync_time,
                                                                                                     max_sync_time,d_write_time,d_time_resolution)
                         
                         #find jump type and location
-                        ensemble_kernel.choose_step_kernel[blockspergrid, threadsperblock,stream1](d_Z, d_shift_probs, d_sum_W_sorted, d_uniform_rand, d_rand_used, 
+                        ensemble_kernel.choose_step_kernel[blockspergrid, threadsperblock](d_Z, d_shift_probs, d_sum_W_sorted, d_uniform_rand, d_rand_used, 
                                                                                             d_found_index, d_found_shift,d_add_rand, d_CDflag)
                         
                         # ensemble_kernel.choose_kernel[dimGrid, dimBlock,stream1](d_Z, d_shift_probs, d_sum_W_sorted, d_uniform_rand, d_rand_used, 
@@ -525,7 +522,7 @@ class FSM_LINEAR(object):
 
                         
                         #apply jump move for each chain and update time of chain
-                        ensemble_kernel.apply_step_kernel[blockspergrid,threadsperblock,stream1](d_Z, d_QN, d_QN_first, d_QN_create_SDCD,
+                        ensemble_kernel.apply_step_kernel[blockspergrid,threadsperblock](d_Z, d_QN, d_QN_first, d_QN_create_SDCD,
                                                                                             d_chain_time,d_time_compensation,d_sum_W_sorted,
                                                                                             d_found_shift,d_found_index,d_reach_flag, d_tdt,
                                                                                             d_t_cr, d_new_t_cr, d_f_t, d_tau_CD, d_new_tau_CD,
@@ -538,10 +535,10 @@ class FSM_LINEAR(object):
                         
                         
                         if self.flow:
-                            reach_flag_host = d_reach_flag.copy_to_host(stream=stream1)
+                            reach_flag_host = d_reach_flag.copy_to_host()
                             sum_reach_flags = int(np.sum(reach_flag_host)) 
                         elif not self.flow and step_count % 250 == 0: #check every 250 jump processes if all chains reached time for sync
-                            reach_flag_host = d_reach_flag.copy_to_host(stream=stream1)
+                            reach_flag_host = d_reach_flag.copy_to_host()
                             sum_reach_flags = int(np.sum(reach_flag_host)) 
 
                         #if all reach_flags are 1, sum should equal number of chains and all chains are synced
@@ -549,8 +546,7 @@ class FSM_LINEAR(object):
                     
                         #record entanglement lifetime distribution
                         if analytic==False:
-                            ft = d_f_t.copy_to_host(stream=stream1)
-                            stream1.synchronize()
+                            ft = d_f_t.copy_to_host()
                             for k in range(0,self.input_data['Nchains']):
                                 if ft[k] > 0.0 and ft[k] < 20:
                                     enttime_bins[math.floor(ft[k]*1000)]+=1

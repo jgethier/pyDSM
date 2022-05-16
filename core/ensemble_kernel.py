@@ -150,7 +150,7 @@ def calc_probs_strands(Z,QN,flow,tdt,kappa,tau_CD,shift_probs,CD_flag,CD_create_
                 shift_probs[i, j, 2] = tcd
                 shift_probs[i, j, 3] = CD_create_prefact[0]*(QN_i[3]-1.0)
 
-    #####CHAIN ENDS#########
+    #####DANGLING STRANDS/CHAIN ENDS#########
 
     if j == 0:
         QNfirst = QN[i,0]
@@ -255,22 +255,18 @@ def calc_probs_chainends(Z, QN, shift_probs, CD_flag, CD_create_prefact, beta, N
 @cuda.jit
 def choose_kernel(Z,shift_probs,sum_W_sorted,uniform_rand,rand_used,found_index,found_shift,add_rand,CD_flag,NK):
 
-    s = cuda.shared.array(1000,float32)
+    s = cuda.shared.array(1024,float32)
 
-    i = cuda.blockIdx.x*cuda.blockDim.x + cuda.threadIdx.x #chain index
+    i = cuda.blockIdx.x*cuda.blockDim.x + cuda.threadIdx.x #chain
     j = cuda.blockIdx.y*cuda.blockDim.y + cuda.threadIdx.y #strand index
-
-    if NK[0]>1000 and i == 0 and j == 0:
-        print("NK is larger than 1000. Reduce chain size.")
+    
+    if NK[0]>1024 and i == 0 and j == 0:
+        print("NK is larger than 1024. Reduce chain size.")
  
-    if i >= shift_probs.shape[0]:
-        return
     tz = int(Z[i])
-    if j >= tz+1:
-        return 
 
-    temp = shift_probs[i,j,:]
-    s[j] = 0.0
+    temp = shift_probs[i,i,:]
+    s[i] = 0.0
     cuda.syncthreads()
 
     if CD_flag[0] == 1:
@@ -280,51 +276,50 @@ def choose_kernel(Z,shift_probs,sum_W_sorted,uniform_rand,rand_used,found_index,
 
     d = 1
     while d < 32:
-        
         var2 = cuda.shfl_up_sync(-1,var,d)
-        if (j % 32 >= d):
+        if (i % 32 >= d):
             var += var2
         d <<= 1
 
-    if (j % 32 == 31): 
-        s[int(j / 32)] = var
+    if (i % 32 == 31): 
+        s[int(i / 32)] = var
 
     cuda.syncthreads()
 
-    if (j < 32):
+    if (i < 32):
         var2 = 0.0
-        if (j < cuda.blockDim.y / 32):
-            var2 = s[j]
+        if (i < cuda.blockDim.x / 32):
+            var2 = s[i]
         d=1
         while d<32:
             var3 = cuda.shfl_up_sync(-1,var2,d)
-            if (j % 32 >= d): 
+            if (i % 32 >= d): 
                 var2 += var3
-            d = d<<1
+            d <<= 1
         
-        if (j < cuda.blockDim.y / 32):
-            s[j] = var2
+        if (i < cuda.blockDim.y / 32):
+            s[i] = var2
     
     cuda.syncthreads()
 
-    if (j >= 32):
-        var += s[int(j / 32 - 1)]
+    if (i >= 32):
+        var += s[int(i / 32 - 1)]
     
     cuda.syncthreads()
 
-    s[j] = var
+    s[i] = var
 
     cuda.syncthreads()
 
-    sum_W_sorted[i] = s[tz]
-    if i == 0 and j == 0:
-        print(s[tz])
-    x = float(s[tz])*uniform_rand[i,int(rand_used[i])]
+    sum_W_sorted[i] = s[NK[0]-1]
+    if i == 0 and i == 0:
+        print(s[NK[0]-1])
+    x = float(s[NK[0]-1])*uniform_rand[i,int(rand_used[i])]
     
-    if j == 0:
+    if i == 0:
         left = 0
-    elif j>0:
-        left = s[j-1]
+    elif i>0:
+        left = s[i-1]
 
     if i == 0:
         print(left)
@@ -334,9 +329,9 @@ def choose_kernel(Z,shift_probs,sum_W_sorted,uniform_rand,rand_used,found_index,
     zFound = bool((left + temp[0] + temp[1] < x) & (x <= left + temp[0] + temp[1] + temp[2]))
     wFound = bool((left + temp[0] + temp[1] + temp[2] < x) & (x <= left + temp[0] + temp[1] + temp[2] + temp[3]))
 
-    ii = j
+    ii = i
     if xFound or yFound or zFound or wFound:
-        found_index[i] = j
+        found_index[i] = i
         if xFound:
             found_shift[i] = 0
             if (ii == tz - 1):
@@ -357,8 +352,8 @@ def choose_kernel(Z,shift_probs,sum_W_sorted,uniform_rand,rand_used,found_index,
         elif wFound:
             found_shift[i] = 4 #create by CD
             add_rand[i] = float((x - left - temp[0] - temp[1] - temp[2])) / float(temp[3])
-    else:
-        print("Error: no jump found for chain",i)
+    # else:
+    #     print("Error: no jump found for chain",i)
 
     return
 

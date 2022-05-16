@@ -1,6 +1,7 @@
 import os
 import sys
 import time
+import warnings
 import numpy as np
 from numba import cuda
 from numba.cuda.random import create_xoroshiro128p_states
@@ -15,6 +16,7 @@ import core.ensemble_kernel as ensemble_kernel
 import core.gpu_random as gpu_rand 
 import core.correlation as correlation
 
+warnings.filterwarnings('ignore')
 
 class FSM_LINEAR(object):
 
@@ -202,7 +204,7 @@ class FSM_LINEAR(object):
         #keeping track of the last simulation time for beginning of next array
         self.old_sync_time = time
     
-    def load_results(self,filename,block_num,num_chains):
+    def load_results(self,filename,block_num,block_size,num_chains):
         '''
         Load in part of the binary .dat file into the result array
         Inputs: filename - filename of the data file
@@ -216,16 +218,16 @@ class FSM_LINEAR(object):
                 while True:
                     data = pickle.load(f)
                     for j in data:
-                        if block_num == 1:
+                        if block_num == 0:
                             first_idx = 1
                         else:
-                            first_idx = self.old_num_chains
+                            first_idx = block_num*block_size + 1
                         last_idx = num_chains+1
                         result_array.append(j[first_idx:last_idx])
             except EOFError:
                 pass
 
-        self.old_num_chains = num_chains+1
+        #self.old_num_chains = num_chains+1
         return result_array
 
 
@@ -237,6 +239,7 @@ class FSM_LINEAR(object):
         dimGrid_x = (self.input_data['Nchains']+dimBlock[0]-1)//dimBlock[0]
         dimGrid_y = (self.input_data['NK']+dimBlock[1]-1)//dimBlock[1]
         dimGrid = (dimGrid_x,dimGrid_y)
+        dimGrid2 = (dimGrid_y,dimGrid_x)
         
         #flattened grid dimensions
         threadsperblock = 256
@@ -342,7 +345,7 @@ class FSM_LINEAR(object):
             calc_type = 1
         else:
             self.flow = False
-            d_kappa = cuda.to_device(self.input_data['kappa'])
+            d_kappa = cuda.to_device(np.array(self.input_data['kappa'],dtype=float))
         
         #if not flow, check for equilibrium calculation type (G(t) or MSD)
         if not self.flow:
@@ -517,7 +520,7 @@ class FSM_LINEAR(object):
                         ensemble_kernel.choose_step_kernel[blockspergrid, threadsperblock](d_Z, d_shift_probs, d_sum_W_sorted, d_uniform_rand, d_rand_used, 
                                                                                             d_found_index, d_found_shift,d_add_rand, d_CDflag)
                         
-                        # ensemble_kernel.choose_kernel[dimGrid, dimBlock,stream1](d_Z, d_shift_probs, d_sum_W_sorted, d_uniform_rand, d_rand_used, 
+                        # ensemble_kernel.choose_kernel[blockspergrid, threadsperblock](d_Z, d_shift_probs, d_sum_W_sorted, d_uniform_rand, d_rand_used, 
                         #                                                                     d_found_index, d_found_shift,d_add_rand, d_CDflag, d_NK)
 
                         
@@ -605,7 +608,12 @@ class FSM_LINEAR(object):
         
         if not self.flow:
             #read in data files for autocorrelation function and split into blocks of 1000 chains (helps prevent reaching maximum memory)
-            num_chain_blocks = math.ceil(self.input_data['Nchains']/1000)
+            if self.input_data['Nchains']*(self.input_data['sim_time']/self.input_data['tau_K']) >= 1e8:
+                block_size = 100
+            else:
+                block_size = 500
+
+            num_chain_blocks = math.ceil(self.input_data['Nchains']/block_size)
 
             num_times = math.ceil(self.input_data['sim_time']/self.input_data['tau_K'])+1
             
@@ -630,23 +638,22 @@ class FSM_LINEAR(object):
             average_error = np.zeros(shape=len(corr_time))
 
             print("Loading stress data and calculating correlation function, this may take some time...",end="",flush=True)
-            for n in range(1,num_chain_blocks+1):
-                if n == num_chain_blocks:
+            for n in range(0,num_chain_blocks):
+                if n == num_chain_blocks-1:
                     num_chains = self.input_data['Nchains']
                 else:
-                    num_chains = n*1000
+                    num_chains = n*block_size + block_size
 
                 if calc_type == 1: #stress data if EQ_calc is 'stress'
                     stress_array = np.array(self.load_results(self.stress_output,block_num=n,num_chains=num_chains)) 
                     rawdata = np.reshape(stress_array,(1,num_times,num_chains)) #reshape stress array  
                     
                 elif calc_type == 2: #CoM data if EQ_calc is 'msd' (this is a little messy, since each dimension is stored separately)
-                    com_array_x = np.array(self.load_results(self.com_output_x,block_num=n,num_chains=num_chains)) #load center of mass in x file
-                    com_array_y = np.array(self.load_results(self.com_output_y,block_num=n,num_chains=num_chains)) #load center of mass in y file
-                    com_array_z = np.array(self.load_results(self.com_output_z,block_num=n,num_chains=num_chains)) #load center of mass in z file
+                    com_array_x = np.array(self.load_results(self.com_output_x,block_num=n,block_size=block_size,num_chains=num_chains)) #load center of mass in x file
+                    com_array_y = np.array(self.load_results(self.com_output_y,block_num=n,block_size=block_size,num_chains=num_chains)) #load center of mass in y file
+                    com_array_z = np.array(self.load_results(self.com_output_z,block_num=n,block_size=block_size,num_chains=num_chains)) #load center of mass in z file
 
                     rawdata = np.array([com_array_x,com_array_y,com_array_z])
-                    rawdata = np.array(np.reshape(rawdata,(3,num_times,num_chains)))
                     
                 #initialize arrays for output
                 data_corr = np.zeros(shape=(num_chains,count,2),dtype=float) #hold average chain stress/com correlations 

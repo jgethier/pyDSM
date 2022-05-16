@@ -645,7 +645,7 @@ class FSM_LINEAR(object):
                     num_chains = n*block_size + block_size
 
                 if calc_type == 1: #stress data if EQ_calc is 'stress'
-                    stress_array = np.array(self.load_results(self.stress_output,block_num=n,num_chains=num_chains)) 
+                    stress_array = np.array(self.load_results(self.stress_output,block_num=n,block_size=block_size,num_chains=num_chains)) 
                     rawdata = np.reshape(stress_array,(1,num_times,num_chains)) #reshape stress array  
                     
                 elif calc_type == 2: #CoM data if EQ_calc is 'msd' (this is a little messy, since each dimension is stored separately)

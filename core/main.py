@@ -614,7 +614,6 @@ class FSM_LINEAR(object):
                 block_size = 500
 
             num_chain_blocks = math.ceil(self.input_data['Nchains']/block_size)
-
             num_times = math.ceil(self.input_data['sim_time']/self.input_data['tau_K'])+1
             
             #parameters for block transformation
@@ -648,16 +647,17 @@ class FSM_LINEAR(object):
                     stress_array = np.array(self.load_results(self.stress_output,block_num=n,block_size=block_size,num_chains=num_chains)) 
                     rawdata = np.array([stress_array])
                     
+                    
                 elif calc_type == 2: #CoM data if EQ_calc is 'msd' (this is a little messy, since each dimension is stored separately)
                     com_array_x = np.array(self.load_results(self.com_output_x,block_num=n,block_size=block_size,num_chains=num_chains)) #load center of mass in x file
                     com_array_y = np.array(self.load_results(self.com_output_y,block_num=n,block_size=block_size,num_chains=num_chains)) #load center of mass in y file
                     com_array_z = np.array(self.load_results(self.com_output_z,block_num=n,block_size=block_size,num_chains=num_chains)) #load center of mass in z file
 
                     rawdata = np.array([com_array_x,com_array_y,com_array_z])
-                    
+
                 #initialize arrays for output
-                data_corr = np.zeros(shape=(num_chains,count,2),dtype=float) #hold average chain stress/com correlations 
-                corr_array =np.zeros(shape=(num_times,num_chains),dtype=float) #array to store correlation values for averaging (single chain) inside kernel
+                data_corr = np.zeros(shape=(block_size,count,2),dtype=float) #hold average chain stress/com correlations 
+                corr_array =np.zeros(shape=(num_times,block_size),dtype=float) #array to store correlation values for averaging each chain inside kernel
 
                 #transfer to device
                 d_data_corr = cuda.to_device(data_corr)
@@ -665,22 +665,23 @@ class FSM_LINEAR(object):
                 d_corr_array = cuda.to_device(corr_array)
 
                 #run the block transformation and calculate correlation with error
-                correlation.calc_corr[blockspergrid,threadsperblock](d_rawdata,calc_type,sampf,uplim,d_data_corr,d_corr_array)
+                correlation.calc_corr[blockspergrid,threadsperblock](d_rawdata,calc_type,uplim,d_data_corr,d_corr_array)
 
                 #copy results to host and calculate average over all chains 
                 data_corr_host = d_data_corr.copy_to_host()
+                
                 average_corr += np.sum(data_corr_host[:,:,0],axis=0)
                 average_error += np.sum(data_corr_host[:,:,1],axis=0)
 
-            average_corr = average_corr/self.input_data['Nchains'] #np.mean(data_corr_final[:,:,0],axis=0) #average stress correlation
-            average_err = average_error/(self.input_data['Nchains']*np.sqrt(self.input_data['Nchains'])) #np.sum(data_corr_final[:,:,1],axis=0)/(self.input_data['Nchains']*np.sqrt(self.input_data['Nchains'])) #error propagation
+            average_corr = average_corr/self.input_data['Nchains']  #average correlation
+            average_error = average_error/(self.input_data['Nchains']*np.sqrt(self.input_data['Nchains'])) #average error from correlation
             
             if calc_type == 1:
                 #make combined result array and write to file
                 with open('./DSM_results/Gt_result_%d.txt'%self.sim_ID, "w") as f:
                     f.write('time, G(t), Error\n')
                     for m in range(0,len(corr_time)):
-                            f.write("%d, %.4f, %.4f \n"%(corr_time[m],average_corr[m],average_err[m]))
+                            f.write("%d, %.4f, %.4f \n"%(corr_time[m],average_corr[m],average_error[m]))
                 print('Done.')
                 print('G(t) results written to Gt_result_%d.txt'%self.sim_ID)
             if calc_type == 2:
@@ -688,7 +689,7 @@ class FSM_LINEAR(object):
                 with open('./DSM_results/MSD_result_%d.txt'%self.sim_ID, "w") as f:
                     f.write('time, MSD, Error\n')
                     for m in range(0,len(corr_time)):
-                            f.write("%d, %.4f, %.4f \n"%(corr_time[m],average_corr[m],average_err[m]))
+                            f.write("%d, %.4f, %.4f \n"%(corr_time[m],average_corr[m],average_error[m]))
                 print('Done.')
                 print('MSD results written to MSD_result_%d.txt'%self.sim_ID)
 

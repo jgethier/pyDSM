@@ -4,7 +4,7 @@ import math
 
 
 @cuda.jit
-def calc_corr(rawdata, calc_type, sampf, uplim, data_corr, corr_array):
+def calc_corr(rawdata, calc_type, uplim, data_corr, corr_array):
     
     i = cuda.blockIdx.x*cuda.blockDim.x + cuda.threadIdx.x #chain index
     

@@ -252,110 +252,110 @@ def calc_probs_chainends(Z, QN, shift_probs, CD_flag, CD_create_prefact, beta, N
     return
 
 
-@cuda.jit
-def choose_kernel(Z,shift_probs,sum_W_sorted,uniform_rand,rand_used,found_index,found_shift,add_rand,CD_flag,NK):
+# @cuda.jit
+# def choose_kernel(Z,shift_probs,sum_W_sorted,uniform_rand,rand_used,found_index,found_shift,add_rand,CD_flag,NK):
 
-    s = cuda.shared.array(1024,float32)
+#     s = cuda.shared.array(1024,float32)
 
-    i = cuda.blockIdx.x*cuda.blockDim.x + cuda.threadIdx.x #chain
-    j = cuda.blockIdx.y*cuda.blockDim.y + cuda.threadIdx.y #strand index
+#     i = cuda.blockIdx.x*cuda.blockDim.x + cuda.threadIdx.x #chain
+#     j = cuda.blockIdx.y*cuda.blockDim.y + cuda.threadIdx.y #strand index
     
-    if NK[0]>1024 and i == 0 and j == 0:
-        print("NK is larger than 1024. Reduce chain size.")
+#     if NK[0]>1024 and i == 0 and j == 0:
+#         print("NK is larger than 1024. Reduce chain size.")
  
-    tz = int(Z[i])
+#     tz = int(Z[i])
 
-    temp = shift_probs[i,i,:]
-    s[i] = 0.0
-    cuda.syncthreads()
+#     temp = shift_probs[i,i,:]
+#     s[i] = 0.0
+#     cuda.syncthreads()
 
-    if CD_flag[0] == 1:
-        var = temp[0] + temp[1] + temp[2] + temp[3]
-    else:
-        var = temp[0] + temp[1]
+#     if CD_flag[0] == 1:
+#         var = temp[0] + temp[1] + temp[2] + temp[3]
+#     else:
+#         var = temp[0] + temp[1]
 
-    d = 1
-    while d < 32:
-        var2 = cuda.shfl_up_sync(-1,var,d)
-        if (i % 32 >= d):
-            var += var2
-        d <<= 1
+#     d = 1
+#     while d < 32:
+#         var2 = cuda.shfl_up_sync(-1,var,d)
+#         if (i % 32 >= d):
+#             var += var2
+#         d <<= 1
 
-    if (i % 32 == 31): 
-        s[int(i / 32)] = var
+#     if (i % 32 == 31): 
+#         s[int(i / 32)] = var
 
-    cuda.syncthreads()
+#     cuda.syncthreads()
 
-    if (i < 32):
-        var2 = 0.0
-        if (i < cuda.blockDim.x / 32):
-            var2 = s[i]
-        d=1
-        while d<32:
-            var3 = cuda.shfl_up_sync(-1,var2,d)
-            if (i % 32 >= d): 
-                var2 += var3
-            d <<= 1
+#     if (i < 32):
+#         var2 = 0.0
+#         if (i < cuda.blockDim.x / 32):
+#             var2 = s[i]
+#         d=1
+#         while d<32:
+#             var3 = cuda.shfl_up_sync(-1,var2,d)
+#             if (i % 32 >= d): 
+#                 var2 += var3
+#             d <<= 1
         
-        if (i < cuda.blockDim.y / 32):
-            s[i] = var2
+#         if (i < cuda.blockDim.y / 32):
+#             s[i] = var2
     
-    cuda.syncthreads()
+#     cuda.syncthreads()
 
-    if (i >= 32):
-        var += s[int(i / 32 - 1)]
+#     if (i >= 32):
+#         var += s[int(i / 32 - 1)]
     
-    cuda.syncthreads()
+#     cuda.syncthreads()
 
-    s[i] = var
+#     s[i] = var
 
-    cuda.syncthreads()
+#     cuda.syncthreads()
 
-    sum_W_sorted[i] = s[NK[0]-1]
-    if i == 0 and i == 0:
-        print(s[NK[0]-1])
-    x = float(s[NK[0]-1])*uniform_rand[i,int(rand_used[i])]
+#     sum_W_sorted[i] = s[NK[0]-1]
+#     if i == 0 and i == 0:
+#         print(s[NK[0]-1])
+#     x = float(s[NK[0]-1])*uniform_rand[i,int(rand_used[i])]
     
-    if i == 0:
-        left = 0
-    elif i>0:
-        left = s[i-1]
+#     if i == 0:
+#         left = 0
+#     elif i>0:
+#         left = s[i-1]
 
-    if i == 0:
-        print(left)
+#     if i == 0:
+#         print(left)
 
-    xFound = bool((left < x) & (x <= left + temp[0]))
-    yFound = bool((left + temp[0] < x) & (x <= left + temp[0] + temp[1]))
-    zFound = bool((left + temp[0] + temp[1] < x) & (x <= left + temp[0] + temp[1] + temp[2]))
-    wFound = bool((left + temp[0] + temp[1] + temp[2] < x) & (x <= left + temp[0] + temp[1] + temp[2] + temp[3]))
+#     xFound = bool((left < x) & (x <= left + temp[0]))
+#     yFound = bool((left + temp[0] < x) & (x <= left + temp[0] + temp[1]))
+#     zFound = bool((left + temp[0] + temp[1] < x) & (x <= left + temp[0] + temp[1] + temp[2]))
+#     wFound = bool((left + temp[0] + temp[1] + temp[2] < x) & (x <= left + temp[0] + temp[1] + temp[2] + temp[3]))
 
-    ii = i
-    if xFound or yFound or zFound or wFound:
-        found_index[i] = i
-        if xFound:
-            found_shift[i] = 0
-            if (ii == tz - 1):
-                found_index[i] = ii-1
-                found_shift[i] = 5 #destroy at end by SD
-            if (ii == tz):
-                found_index[i] = 0
-                found_shift[i] = 5 #destroy at beginning by SD
-        elif yFound:
-            found_shift[i] = 1
-            if (ii == tz - 1):
-                found_shift[i] = 3 #create at end by SD
-            if (ii == tz):
-                found_index[i] = 0
-                found_shift[i] = 6 #create at beginning by SD
-        elif zFound:
-            found_shift[i] = 2 #destroy by CD
-        elif wFound:
-            found_shift[i] = 4 #create by CD
-            add_rand[i] = float((x - left - temp[0] - temp[1] - temp[2])) / float(temp[3])
-    # else:
-    #     print("Error: no jump found for chain",i)
+#     ii = i
+#     if xFound or yFound or zFound or wFound:
+#         found_index[i] = i
+#         if xFound:
+#             found_shift[i] = 0
+#             if (ii == tz - 1):
+#                 found_index[i] = ii-1
+#                 found_shift[i] = 5 #destroy at end by SD
+#             if (ii == tz):
+#                 found_index[i] = 0
+#                 found_shift[i] = 5 #destroy at beginning by SD
+#         elif yFound:
+#             found_shift[i] = 1
+#             if (ii == tz - 1):
+#                 found_shift[i] = 3 #create at end by SD
+#             if (ii == tz):
+#                 found_index[i] = 0
+#                 found_shift[i] = 6 #create at beginning by SD
+#         elif zFound:
+#             found_shift[i] = 2 #destroy by CD
+#         elif wFound:
+#             found_shift[i] = 4 #create by CD
+#             add_rand[i] = float((x - left - temp[0] - temp[1] - temp[2])) / float(temp[3])
+#     # else:
+#     #     print("Error: no jump found for chain",i)
 
-    return
+#     return
 
 
 @cuda.jit
@@ -446,7 +446,7 @@ def choose_step_kernel(Z,shift_probs,sum_W_sorted,uniform_rand,rand_used,found_i
 
 
 @cuda.jit
-def time_control_kernel(Z,QN,QN_first,NK,chain_time,tdt,result,calc_type,flow,reach_flag,next_sync_time,max_sync_time,write_time,time_resolution):
+def time_control_kernel(Z,QN,QN_first,NK,chain_time,tdt,result,calc_type,flow,reach_flag,next_sync_time,max_sync_time,write_time,time_resolution,stress_index):
     
     
     i = cuda.blockIdx.x*cuda.blockDim.x + cuda.threadIdx.x #chain index
@@ -457,7 +457,8 @@ def time_control_kernel(Z,QN,QN_first,NK,chain_time,tdt,result,calc_type,flow,re
     if reach_flag[i] != 0:
         return
     
-    
+    result[i,stress_index,0] = result[i,stress_index,1] = result[i,stress_index,2] = result[i,stress_index,3] = 0.0
+
     if (chain_time[i] >= next_sync_time) and chain_time[i] <= (write_time[i]*time_resolution[0]):
         
         #if sync time is reached and stress was recorded, set reach flag to 1
@@ -472,18 +473,23 @@ def time_control_kernel(Z,QN,QN_first,NK,chain_time,tdt,result,calc_type,flow,re
             
             tz = int(Z[i])
             
-            if int((chain_time[i]%max_sync_time)/time_resolution[0])==0 and write_time[i] != 0:
-                arr_index = int(max_sync_time/time_resolution[0])
-            else:
-                arr_index = int((chain_time[i]%max_sync_time)/time_resolution[0]) 
+            # if int((chain_time[i]%max_sync_time)/time_resolution[0])==0 and write_time[i] != 0:
+            #     arr_index = int(max_sync_time/time_resolution[0])
+            # else:
+            #     arr_index = int((chain_time[i]%max_sync_time)/time_resolution[0]) 
             
             if calc_type[0] == 1:
-                stress_xy = 0.0 
+                stress_xy = stress_yz = stress_xz = 0.0 
 
                 for j in range(0,tz):
                     stress_xy -= (3.0*QN[i,j,0]*QN[i,j,1] / QN[i,j,3]) #tau_xy
+                    stress_yz -= (3.0*QN[i,j,1]*QN[i,j,2] / QN[i,j,3]) #tau_yz
+                    stress_xz -= (3.0*QN[i,j,0]*QN[i,j,2] / QN[i,j,3]) #tau_xz
 
-                result[i,arr_index,0] = stress_xy
+                result[i,stress_index,0] = stress_xy
+                result[i,stress_index,1] = stress_yz
+                result[i,stress_index,2] = stress_xz
+                result[i,stress_index,3] = 1.0
             
             elif calc_type[0] == 2:
                 QN_1 = QN_first[i,:] #need fixed frame of reference, choosing first entanglement which is tracked during simulation
@@ -506,12 +512,15 @@ def time_control_kernel(Z,QN,QN_first,NK,chain_time,tdt,result,calc_type,flow,re
                         chain_com[k] += term[k] * QN_i[3] / NK[0]
                         prev_QN[k] = QN_i[k]
                     
-                result[i,arr_index,0] = chain_com[0] + QN_1[0]
-                result[i,arr_index,1] = chain_com[1] + QN_1[1]
-                result[i,arr_index,2] = chain_com[2] + QN_1[2]
+                result[i,stress_index,0] = chain_com[0] + QN_1[0]
+                result[i,stress_index,1] = chain_com[1] + QN_1[1]
+                result[i,stress_index,2] = chain_com[2] + QN_1[2]
+                result[i,stress_index,3] = 1.0
                 
         
         write_time[i]+=1
+    
+    return
         
         
     

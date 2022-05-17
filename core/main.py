@@ -422,6 +422,28 @@ class FSM_LINEAR(object):
         new_t_cr = np.zeros(shape=(chain.QN.shape[0],chain.QN.shape[1]+1))
         new_tau_CD = np.zeros(shape=(chain.QN.shape[0],chain.QN.shape[1]+1))
 
+        
+        p = 64
+        m = 8
+        S_corr = int(math.ceil(np.log(self.input_data['sim_time']/self.input_data['tau_K']/p)/np.log(m)))
+
+        #initialize arrays for correlator
+        D_array = np.zeros(shape=(chain.QN.shape[0],S_corr+1,p,3),dtype=float)
+        D_shift_array = np.zeros(shape=(chain.QN.shape[0],S_corr+1,p,3),dtype=float)
+        var_array = np.zeros(shape=(chain.QN.shape[0],S_corr+1,p),dtype=float)
+        C_array = np.zeros(shape=(chain.QN.shape[0],S_corr+1,p),dtype=float)
+        N_array = np.zeros(shape=(chain.QN.shape[0],S_corr+1,p),dtype=float)
+        A_array = np.zeros(shape=(chain.QN.shape[0],S_corr+1,3),dtype=float)
+        M_array = np.zeros(shape=(chain.QN.shape[0],S_corr+1),dtype=int)
+
+        d_D = cuda.to_device(D_array)
+        d_D_shift = cuda.to_device(D_shift_array)
+        d_var_array = cuda.to_device(var_array)
+        d_C = cuda.to_device(C_array)
+        d_N = cuda.to_device(N_array)
+        d_A = cuda.to_device(A_array)
+        d_M = cuda.to_device(M_array)
+
         #move arrays to device
         d_QN_create_SDCD = cuda.to_device(QN_create_SDCD)
         d_reach_flag = cuda.to_device(reach_flag) 
@@ -463,14 +485,14 @@ class FSM_LINEAR(object):
             max_sync_time = self.input_data['tau_K']
             res = np.zeros(shape=(chain.QN.shape[0],1,6),dtype=float) #initialize result array (stress or CoM)
         else:
-            max_sync_time = 100 #arbitrary, just setting every chain to sync at t = 100 (TODO: determine how efficient this is)
+            max_sync_time = self.input_data['sim_time'] #arbitrary, just setting every chain to sync at t = 100 (TODO: determine how efficient this is)
             #set max sync time to simulation time if simulation time is less than sync time
-            if max_sync_time > simulation_time:
-                max_sync_time = simulation_time
-            if calc_type == 1: #result array (G(t) or MSD) dimensions are set based on EQ_calc
-                res = np.zeros(shape=(chain.QN.shape[0],int(max_sync_time/time_resolution)+1,1),dtype=float) #initialize result array (stress or CoM)
-            elif calc_type == 2:
-                res = np.zeros(shape=(chain.QN.shape[0],int(max_sync_time/time_resolution)+1,3),dtype=float) 
+            # if max_sync_time > simulation_time:
+            #     max_sync_time = simulation_time
+            #if calc_type == 1: #result array (G(t) or MSD) dimensions are set based on EQ_calc
+            #res = np.zeros(shape=(chain.QN.shape[0],250,4),dtype=float) #initialize result array (stress or CoM)
+            #elif calc_type == 2:
+            res = np.zeros(shape=(chain.QN.shape[0],250,4),dtype=float) 
         
         #move result array, calc_type, and flow variables to device
         d_res = cuda.to_device(res) 
@@ -514,7 +536,7 @@ class FSM_LINEAR(object):
                         #control chain time and stress calculation
                         ensemble_kernel.time_control_kernel[blockspergrid, threadsperblock](d_Z,d_QN,d_QN_first,d_NK,d_chain_time,
                                                                                                     d_tdt,d_res,d_calc_type,d_flow,d_reach_flag,next_sync_time,
-                                                                                                    max_sync_time,d_write_time,d_time_resolution)
+                                                                                                    max_sync_time,d_write_time,d_time_resolution,step_count%250)
                         
                         #find jump type and location
                         ensemble_kernel.choose_step_kernel[blockspergrid, threadsperblock](d_Z, d_shift_probs, d_sum_W_sorted, d_uniform_rand, d_rand_used, 
@@ -565,18 +587,20 @@ class FSM_LINEAR(object):
                                                                                             d_tau_CD_gauss_rand_CD, d_pcd_array,d_pcd_table_eq,d_pcd_table_cr, d_pcd_table_tau)
                            
                             gpu_rand.refill_uniform_rand[blockspergrid,threadsperblock](self.rng_states, self.input_data['Nchains'], d_rand_used, d_uniform_rand)
-                            step_count = 0
+                            
 
+                            correlation.update_correlator[blockspergrid,threadsperblock](d_res,d_D,d_D_shift,d_C,d_var_array,d_N,d_A,d_M,d_calc_type)
+                            step_count = 0
 
                    
                     #write result of all chains to file
-                    if self.flow: #if flow, calculate flow stress tensor for each chain
-                        ensemble_kernel.calc_flow_stress[blockspergrid,threadsperblock](d_Z,d_QN,d_res)
-                    res_host = d_res.copy_to_host()
-                    if calc_type == 1: #if G(t), write tau_xy
-                        self.write_stress(x_sync,next_sync_time,res_host)
-                    elif calc_type == 2: #if MSD, write CoM 
-                        self.write_com(x_sync,next_sync_time,res_host)
+                    # if self.flow: #if flow, calculate flow stress tensor for each chain
+                    #     ensemble_kernel.calc_flow_stress[blockspergrid,threadsperblock](d_Z,d_QN,d_res)
+                    # res_host = d_res.copy_to_host()
+                    # if calc_type == 1: #if G(t), write tau_xy
+                    #     self.write_stress(x_sync,next_sync_time,res_host)
+                    # elif calc_type == 2: #if MSD, write CoM 
+                    #     self.write_com(x_sync,next_sync_time,res_host)
                   
                     #update progress bar
                     bar()
@@ -607,81 +631,102 @@ class FSM_LINEAR(object):
         
         
         if not self.flow:
-            #read in data files for autocorrelation function and split into blocks of 1000 chains (helps prevent reaching maximum memory)
-            if self.input_data['Nchains']*(self.input_data['sim_time']/self.input_data['tau_K']) >= 1e8:
-                block_size = 100
-            else:
-                block_size = 500
+            C_array = d_C.copy_to_host()
+            N_array = d_N.copy_to_host()
+            var_array = d_var_array.copy_to_host()
 
-            num_chain_blocks = math.ceil(self.input_data['Nchains']/block_size)
-            num_times = math.ceil(self.input_data['sim_time']/self.input_data['tau_K'])+1
-            
-            #parameters for block transformation
-            p = 8
-            m = 2
-            uplim=int(math.floor(np.log(num_times/p)/np.log(m)))
-            sampf = 1/self.input_data['tau_K']
-
-            #counter for initializing final array size and set the correlated times in corr_time array
-            count = 0
-            corr_time = [] #array to hold correlated times (log scale) 
-            for k in range(1,p*m):
-                count+=1
-                corr_time.append(int(k/sampf))
-            for l in range(1,int(uplim)):
-                for k in range(p*m**l,p*m**(l+1),m**l):
-                    count+=1
-                    corr_time.append(int(k/sampf))
-
-            average_corr = np.zeros(shape=len(corr_time))
-            average_error = np.zeros(shape=len(corr_time))
-
-            print("Loading stress data and calculating correlation function, this may take some time...",end="",flush=True)
-            for n in range(0,num_chain_blocks):
-                if n == num_chain_blocks-1:
-                    num_chains = self.input_data['Nchains']
+            corr_time = []
+            corr_aver = []
+            corr_error = []
+            for corrLevel in range(0,S_corr+1):
+                if corrLevel == 0:
+                    for j in range(0,p):
+                        corr_time.append(j*(m**corrLevel)*self.input_data['tau_K'])
+                        corr_aver.append(np.sum(C_array[:,corrLevel,j]/N_array[:,corrLevel,j],axis=0)/self.input_data['Nchains'])
+                        corr_error.append(np.sum(np.sqrt(var_array[:,corrLevel,j]/(N_array[:,corrLevel,j]-1)),axis=0)/(self.input_data['Nchains']*np.sqrt(self.input_data['Nchains'])))
                 else:
-                    num_chains = n*block_size + block_size
+                    for j in range(int(p/m),p):
+                        corr_time.append(j*(m**corrLevel)*self.input_data['tau_K'])
+                        corr_aver.append(np.sum(C_array[:,corrLevel,j]/N_array[:,corrLevel,j],axis=0)/self.input_data['Nchains'])
+                        corr_error.append(np.sum(np.sqrt(var_array[:,corrLevel,j]/(N_array[:,corrLevel,j]-1)),axis=0)/(self.input_data['Nchains']*np.sqrt(self.input_data['Nchains'])))
+            
+            #corr_error=np.zeros(shape=np.array(corr_aver).shape)
 
-                if calc_type == 1: #stress data if EQ_calc is 'stress'
-                    stress_array = np.array(self.load_results(self.stress_output,block_num=n,block_size=block_size,num_chains=num_chains)) 
-                    rawdata = np.array([stress_array])
+            #read in data files for autocorrelation function and split into blocks of 1000 chains (helps prevent reaching maximum memory)
+            # if self.input_data['Nchains']*(self.input_data['sim_time']/self.input_data['tau_K']) >= 1e8:
+            #     block_size = 100
+            # else:
+            #     block_size = 500
+
+            # num_chain_blocks = math.ceil(self.input_data['Nchains']/block_size)
+            # num_times = math.ceil(self.input_data['sim_time']/self.input_data['tau_K'])+1
+            
+            # #parameters for block transformation
+            # p = 8
+            # m = 2
+            # uplim=int(math.floor(np.log(num_times/p)/np.log(m)))
+            # sampf = 1/self.input_data['tau_K']
+
+            # #counter for initializing final array size and set the correlated times in corr_time array
+            # count = 0
+            # corr_time = [] #array to hold correlated times (log scale) 
+            # for k in range(1,p*m):
+            #     count+=1
+            #     corr_time.append(int(k/sampf))
+            # for l in range(1,int(uplim)):
+            #     for k in range(p*m**l,p*m**(l+1),m**l):
+            #         count+=1
+            #         corr_time.append(int(k/sampf))
+
+            # average_corr = np.zeros(shape=len(corr_time))
+            # average_error = np.zeros(shape=len(corr_time))
+
+            # print("Loading stress data and calculating correlation function, this may take some time...",end="",flush=True)
+            # for n in range(0,num_chain_blocks):
+            #     if n == num_chain_blocks-1:
+            #         num_chains = self.input_data['Nchains']
+            #     else:
+            #         num_chains = n*block_size + block_size
+
+            #     if calc_type == 1: #stress data if EQ_calc is 'stress'
+            #         stress_array = np.array(self.load_results(self.stress_output,block_num=n,block_size=block_size,num_chains=num_chains)) 
+            #         rawdata = np.array([stress_array])
                     
                     
-                elif calc_type == 2: #CoM data if EQ_calc is 'msd' (this is a little messy, since each dimension is stored separately)
-                    com_array_x = np.array(self.load_results(self.com_output_x,block_num=n,block_size=block_size,num_chains=num_chains)) #load center of mass in x file
-                    com_array_y = np.array(self.load_results(self.com_output_y,block_num=n,block_size=block_size,num_chains=num_chains)) #load center of mass in y file
-                    com_array_z = np.array(self.load_results(self.com_output_z,block_num=n,block_size=block_size,num_chains=num_chains)) #load center of mass in z file
+            #     elif calc_type == 2: #CoM data if EQ_calc is 'msd' (this is a little messy, since each dimension is stored separately)
+            #         com_array_x = np.array(self.load_results(self.com_output_x,block_num=n,block_size=block_size,num_chains=num_chains)) #load center of mass in x file
+            #         com_array_y = np.array(self.load_results(self.com_output_y,block_num=n,block_size=block_size,num_chains=num_chains)) #load center of mass in y file
+            #         com_array_z = np.array(self.load_results(self.com_output_z,block_num=n,block_size=block_size,num_chains=num_chains)) #load center of mass in z file
 
-                    rawdata = np.array([com_array_x,com_array_y,com_array_z])
+            #         rawdata = np.array([com_array_x,com_array_y,com_array_z])
 
-                #initialize arrays for output
-                data_corr = np.zeros(shape=(block_size,count,2),dtype=float) #hold average chain stress/com correlations 
-                corr_array =np.zeros(shape=(num_times,block_size),dtype=float) #array to store correlation values for averaging each chain inside kernel
+            #     #initialize arrays for output
+            #     data_corr = np.zeros(shape=(block_size,count,2),dtype=float) #hold average chain stress/com correlations 
+            #     corr_array =np.zeros(shape=(num_times,block_size),dtype=float) #array to store correlation values for averaging each chain inside kernel
 
-                #transfer to device
-                d_data_corr = cuda.to_device(data_corr)
-                d_rawdata = cuda.to_device(rawdata)
-                d_corr_array = cuda.to_device(corr_array)
+            #     #transfer to device
+            #     d_data_corr = cuda.to_device(data_corr)
+            #     d_rawdata = cuda.to_device(rawdata)
+            #     d_corr_array = cuda.to_device(corr_array)
 
-                #run the block transformation and calculate correlation with error
-                correlation.calc_corr[blockspergrid,threadsperblock](d_rawdata,calc_type,uplim,d_data_corr,d_corr_array)
+            #     #run the block transformation and calculate correlation with error
+            #     correlation.calc_corr[blockspergrid,threadsperblock](d_rawdata,calc_type,uplim,d_data_corr,d_corr_array)
 
-                #copy results to host and calculate average over all chains 
-                data_corr_host = d_data_corr.copy_to_host()
+            #     #copy results to host and calculate average over all chains 
+            #     data_corr_host = d_data_corr.copy_to_host()
                 
-                average_corr += np.sum(data_corr_host[:,:,0],axis=0)
-                average_error += np.sum(data_corr_host[:,:,1],axis=0)
+            #     average_corr += np.sum(data_corr_host[:,:,0],axis=0)
+            #     average_error += np.sum(data_corr_host[:,:,1],axis=0)
 
-            average_corr = average_corr/self.input_data['Nchains']  #average correlation
-            average_error = average_error/(self.input_data['Nchains']*np.sqrt(self.input_data['Nchains'])) #average error from correlation
+            # average_corr = average_corr/self.input_data['Nchains']  #average correlation
+            # average_error = average_error/(self.input_data['Nchains']*np.sqrt(self.input_data['Nchains'])) #average error from correlation
             
             if calc_type == 1:
                 #make combined result array and write to file
                 with open('./DSM_results/Gt_result_%d.txt'%self.sim_ID, "w") as f:
                     f.write('time, G(t), Error\n')
                     for m in range(0,len(corr_time)):
-                            f.write("%d, %.4f, %.4f \n"%(corr_time[m],average_corr[m],average_error[m]))
+                            f.write("%d, %.4f, %.4f \n"%(corr_time[m],corr_aver[m],corr_error[m]))
                 print('Done.')
                 print('G(t) results written to Gt_result_%d.txt'%self.sim_ID)
             if calc_type == 2:
@@ -689,7 +734,7 @@ class FSM_LINEAR(object):
                 with open('./DSM_results/MSD_result_%d.txt'%self.sim_ID, "w") as f:
                     f.write('time, MSD, Error\n')
                     for m in range(0,len(corr_time)):
-                            f.write("%d, %.4f, %.4f \n"%(corr_time[m],average_corr[m],average_error[m]))
+                            f.write("%d, %.4f, %.4f \n"%(corr_time[m],corr_aver[m],corr_error[m]))
                 print('Done.')
                 print('MSD results written to MSD_result_%d.txt'%self.sim_ID)
 

@@ -1,7 +1,95 @@
 import numpy as np
-from numba import cuda
+from numba import cuda, float32
 import math
+import operator
 
+@cuda.jit(device=True)
+def add_to_correlator(result,corrLevel,D,temp_D,C,variance,N,A,M,corrtype):
+
+    #temp_D = cuda.local.array((41,16,3),float32)
+    p = int(D.shape[1])
+    m = 8
+    Scorr = int(D.shape[0])
+
+    if corrLevel >= Scorr: #S+1 correlator levels, S = 40
+        return
+
+    for j in range(1,p):
+        for k in range(0,3):
+            temp_D[corrLevel,j,k] = D[corrLevel,j-1,k]
+    
+    for j in range(1,p):
+        for k in range(0,3):
+            D[corrLevel,j,k] = temp_D[corrLevel,j,k]
+
+    for k in range(0,3):
+        D[corrLevel,0,k] = result[k]
+
+    if corrLevel == 0:
+        for j in range(0,p):
+            N[corrLevel,j] += 1
+            if corrtype == 1:
+                mean = C[corrLevel,j]/N[corrLevel,j]
+                delta = D[corrLevel,0,0]*D[corrLevel,j,0] - mean
+                mean += delta / N[corrLevel,j]
+                delta2 = D[corrLevel,0,0]*D[corrLevel,j,0] - mean 
+                variance[corrLevel,j] += delta*delta2 
+                C[corrLevel,j] += D[corrLevel,0,0]*D[corrLevel,j,0]
+            if corrtype == 2:
+                C[corrLevel,j] += (D[corrLevel,0,0]-D[corrLevel,j,0])**2 + (D[corrLevel,0,1]-D[corrLevel,j,1])**2 + (D[corrLevel,0,2]-D[corrLevel,j,2])**2
+
+    else:
+        for j in range(int(p/m),p):
+            N[corrLevel,j] += 1
+            if corrtype == 1:
+                mean = C[corrLevel,j]/N[corrLevel,j]
+                delta = D[corrLevel,0,0]*D[corrLevel,j,0] - mean
+                mean += delta / N[corrLevel,j]
+                delta2 = D[corrLevel,0,0]*D[corrLevel,j,0] - mean 
+                variance[corrLevel,j] += delta*delta2 
+                C[corrLevel,j] += D[corrLevel,0,0]*D[corrLevel,j,0]
+            if corrtype == 2:
+                C[corrLevel,j] += (D[corrLevel,0,0]-D[corrLevel,j,0])**2 + (D[corrLevel,0,1]-D[corrLevel,j,1])**2 + (D[corrLevel,0,2]-D[corrLevel,j,2])**2
+    
+    if (corrtype == 1) or (corrtype==2 and M[corrLevel]==0):
+    #if M[corrLevel] == 0:
+        A[corrLevel,0] += result[0]
+        A[corrLevel,1] += result[1] 
+        A[corrLevel,2] += result[2]
+    M[corrLevel] += 1
+
+    
+    
+    return
+
+
+@cuda.jit
+def update_correlator(result_array,D,D_shift,C,var,N,A,M,corrtype):
+
+    i = cuda.blockIdx.x*cuda.blockDim.x + cuda.threadIdx.x #chain index
+
+    temp = cuda.local.array(3,float32)
+
+    if i >= result_array.shape[0]:
+        return
+
+    m = 8
+    S_corr = D.shape[1]
+    
+    for j in range(0,len(result_array[i])):
+        result = result_array[i,j,:]
+        if result[-1] == 1.0:
+            add_to_correlator(result,0,D[i],D_shift[i],C[i],var[i],N[i],A[i],M[i],corrtype[0])
+            
+        for corrLevel in range(0,S_corr+1):
+            if M[i,corrLevel] == m:
+                for k in range(0,3):
+                    temp[k] = A[i,corrLevel,k]/m
+                if corrtype[0] == 1: add_to_correlator(temp,int(corrLevel+1),D[i],D_shift[i],C[i],var[i],N[i],A[i],M[i],corrtype[0])
+                if corrtype[0] == 2: add_to_correlator(A[i,corrLevel],int(corrLevel+1),D[i],D_shift[i],C[i],var[i],N[i],A[i],M[i],corrtype[0])
+                A[i,corrLevel,0] = A[i,corrLevel,1] = A[i,corrLevel,2] = 0.0
+                M[i,corrLevel] = 0
+    return 
 
 @cuda.jit
 def calc_corr(rawdata, calc_type, uplim, data_corr, corr_array):

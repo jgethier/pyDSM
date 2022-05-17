@@ -6,54 +6,66 @@ import operator
 @cuda.jit(device=True)
 def add_to_correlator(result,corrLevel,D,temp_D,C,variance,N,A,M,corrtype):
 
-    #temp_D = cuda.local.array((41,16,3),float32)
-    p = int(D.shape[1])
-    m = 8
-    Scorr = int(D.shape[0])
+    p = int(D.shape[1]) #number of data values in correlator level
+    m = 8 #number of data values to average
+    S_corr = int(D.shape[0]) #number of correlator levels
 
-    if corrLevel >= Scorr: #S+1 correlator levels, S = 40
+    if corrLevel >= S_corr: #S+1 correlator levels, S depends on simulation length
         return
 
     for j in range(1,p):
         for k in range(0,3):
-            temp_D[corrLevel,j,k] = D[corrLevel,j-1,k]
+            temp_D[corrLevel,j,k] = D[corrLevel,j-1,k] #temporarily store shifted data values
     
     for j in range(1,p):
         for k in range(0,3):
-            D[corrLevel,j,k] = temp_D[corrLevel,j,k]
+            D[corrLevel,j,k] = temp_D[corrLevel,j,k] #set new data values to shifted values
 
     for k in range(0,3):
-        D[corrLevel,0,k] = result[k]
+        D[corrLevel,0,k] = result[k] #put new correlation value in 0 index
 
     if corrLevel == 0:
         for j in range(0,p):
             N[corrLevel,j] += 1
-            if corrtype == 1:
-                mean = C[corrLevel,j]/N[corrLevel,j]
-                delta = D[corrLevel,0,0]*D[corrLevel,j,0] - mean
-                mean += delta / N[corrLevel,j]
-                delta2 = D[corrLevel,0,0]*D[corrLevel,j,0] - mean 
-                variance[corrLevel,j] += delta*delta2 
-                C[corrLevel,j] += D[corrLevel,0,0]*D[corrLevel,j,0]
+            if corrtype == 1: #Welford algorithm for tracking variance of correlation value
+                mean = C[corrLevel,j]/N[corrLevel,j]            #current mean of the correlated values
+                stress_corr = D[corrLevel,0,0]*D[corrLevel,j,0] #new correlation value
+                delta = stress_corr - mean                      #difference of new correlation from old mean
+                mean += delta / N[corrLevel,j]                  #updated mean
+                delta2 = stress_corr - mean                     #difference of new correlation from new mean
+                variance[corrLevel,j] += delta*delta2           #updated squared distance from mean
+                C[corrLevel,j] += stress_corr                   #update running sum
             if corrtype == 2:
-                C[corrLevel,j] += (D[corrLevel,0,0]-D[corrLevel,j,0])**2 + (D[corrLevel,0,1]-D[corrLevel,j,1])**2 + (D[corrLevel,0,2]-D[corrLevel,j,2])**2
+                mean = C[corrLevel,j]/N[corrLevel,j]
+                msd = (D[corrLevel,0,0]-D[corrLevel,j,0])**2 + (D[corrLevel,0,1]-D[corrLevel,j,1])**2 + (D[corrLevel,0,2]-D[corrLevel,j,2])**2
+                delta = msd - mean
+                mean += delta / N[corrLevel,j]
+                delta2 = msd - mean 
+                variance[corrLevel,j] += delta*delta2 
+                C[corrLevel,j] += msd
 
     else:
         for j in range(int(p/m),p):
             N[corrLevel,j] += 1
             if corrtype == 1:
                 mean = C[corrLevel,j]/N[corrLevel,j]
-                delta = D[corrLevel,0,0]*D[corrLevel,j,0] - mean
+                stress_corr = D[corrLevel,0,0]*D[corrLevel,j,0]
+                delta = stress_corr - mean
                 mean += delta / N[corrLevel,j]
-                delta2 = D[corrLevel,0,0]*D[corrLevel,j,0] - mean 
+                delta2 = stress_corr - mean 
                 variance[corrLevel,j] += delta*delta2 
-                C[corrLevel,j] += D[corrLevel,0,0]*D[corrLevel,j,0]
+                C[corrLevel,j] += stress_corr
             if corrtype == 2:
-                C[corrLevel,j] += (D[corrLevel,0,0]-D[corrLevel,j,0])**2 + (D[corrLevel,0,1]-D[corrLevel,j,1])**2 + (D[corrLevel,0,2]-D[corrLevel,j,2])**2
+                mean = C[corrLevel,j]/N[corrLevel,j]
+                msd = (D[corrLevel,0,0]-D[corrLevel,j,0])**2 + (D[corrLevel,0,1]-D[corrLevel,j,1])**2 + (D[corrLevel,0,2]-D[corrLevel,j,2])**2
+                delta = msd - mean
+                mean += delta / N[corrLevel,j]
+                delta2 = msd - mean 
+                variance[corrLevel,j] += delta*delta2 
+                C[corrLevel,j] += msd
     
-    if (corrtype == 1) or (corrtype==2 and M[corrLevel]==0):
-    #if M[corrLevel] == 0:
-        A[corrLevel,0] += result[0]
+    if M[corrLevel]==0:
+        A[corrLevel,0] += result[0] #only updating accumulator if counter is 0 (non-averaging method)
         A[corrLevel,1] += result[1] 
         A[corrLevel,2] += result[2]
     M[corrLevel] += 1
@@ -83,9 +95,9 @@ def update_correlator(result_array,D,D_shift,C,var,N,A,M,corrtype):
             
         for corrLevel in range(0,S_corr+1):
             if M[i,corrLevel] == m:
-                for k in range(0,3):
-                    temp[k] = A[i,corrLevel,k]/m
-                if corrtype[0] == 1: add_to_correlator(temp,int(corrLevel+1),D[i],D_shift[i],C[i],var[i],N[i],A[i],M[i],corrtype[0])
+                # for k in range(0,3):
+                #     temp[k] = A[i,corrLevel,k]/m #only used for smoothing method
+                if corrtype[0] == 1: add_to_correlator(A[i,corrLevel],int(corrLevel+1),D[i],D_shift[i],C[i],var[i],N[i],A[i],M[i],corrtype[0])
                 if corrtype[0] == 2: add_to_correlator(A[i,corrLevel],int(corrLevel+1),D[i],D_shift[i],C[i],var[i],N[i],A[i],M[i],corrtype[0])
                 A[i,corrLevel,0] = A[i,corrLevel,1] = A[i,corrLevel,2] = 0.0
                 M[i,corrLevel] = 0

@@ -239,7 +239,6 @@ class FSM_LINEAR(object):
         dimGrid_x = (self.input_data['Nchains']+dimBlock[0]-1)//dimBlock[0]
         dimGrid_y = (self.input_data['NK']+dimBlock[1]-1)//dimBlock[1]
         dimGrid = (dimGrid_x,dimGrid_y)
-        dimGrid2 = (dimGrid_y,dimGrid_x)
         
         #flattened grid dimensions
         threadsperblock = 256
@@ -422,7 +421,7 @@ class FSM_LINEAR(object):
         new_t_cr = np.zeros(shape=(chain.QN.shape[0],chain.QN.shape[1]+1))
         new_tau_CD = np.zeros(shape=(chain.QN.shape[0],chain.QN.shape[1]+1))
 
-        
+        #correlator parameters
         p = 64
         m = 8
         S_corr = int(math.ceil(np.log(self.input_data['sim_time']/self.input_data['tau_K']/p)/np.log(m)))
@@ -436,6 +435,7 @@ class FSM_LINEAR(object):
         A_array = np.zeros(shape=(chain.QN.shape[0],S_corr+1,3),dtype=float)
         M_array = np.zeros(shape=(chain.QN.shape[0],S_corr+1),dtype=int)
 
+        #move correlator arrays to device
         d_D = cuda.to_device(D_array)
         d_D_shift = cuda.to_device(D_shift_array)
         d_var_array = cuda.to_device(var_array)

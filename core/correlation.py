@@ -1,10 +1,8 @@
-import numpy as np
 from numba import cuda, float32
 import math
-import operator
 
 @cuda.jit(device=True)
-def add_to_correlator(result,corrLevel,D,temp_D,C,variance,N,A,M,corrtype):
+def add_to_correlator(result,corrLevel,D,temp_D,C,N,A,M,corrtype):
 
     p = int(D.shape[1]) #number of data values in correlator level
     m = 8 #number of data values to average
@@ -27,41 +25,41 @@ def add_to_correlator(result,corrLevel,D,temp_D,C,variance,N,A,M,corrtype):
     if corrLevel == 0:
         for j in range(0,p):
             N[corrLevel,j] += 1
-            if corrtype == 1: #Welford algorithm for tracking variance of correlation value
-                mean = C[corrLevel,j]/N[corrLevel,j]            #current mean of the correlated values
+            if corrtype == 1: #Welford algorithm for tracking variance of correlation value (TODO: determine correct method for estimating block transformation uncertainty)
+                # mean = C[corrLevel,j]/N[corrLevel,j]            #current mean of the correlated values
                 stress_corr = D[corrLevel,0,0]*D[corrLevel,j,0] #new correlation value
-                delta = stress_corr - mean                      #difference of new correlation from old mean
-                mean += delta / N[corrLevel,j]                  #updated mean
-                delta2 = stress_corr - mean                     #difference of new correlation from new mean
-                variance[corrLevel,j] += delta*delta2           #updated squared distance from mean
-                C[corrLevel,j] += stress_corr                   #update running sum
+                # delta = stress_corr - mean                      #difference of new correlation from old mean
+                # mean += delta / N[corrLevel,j]                  #updated mean
+                # delta2 = stress_corr - mean                     #difference of new correlation from new mean
+                # variance[corrLevel,j] += delta*delta2           #updated squared distance from mean
+                C[corrLevel,j] += stress_corr                  #update running sum
             if corrtype == 2:
-                mean = C[corrLevel,j]/N[corrLevel,j]
+                # mean = C[corrLevel,j]/N[corrLevel,j]
                 msd = (D[corrLevel,0,0]-D[corrLevel,j,0])**2 + (D[corrLevel,0,1]-D[corrLevel,j,1])**2 + (D[corrLevel,0,2]-D[corrLevel,j,2])**2
-                delta = msd - mean
-                mean += delta / N[corrLevel,j]
-                delta2 = msd - mean 
-                variance[corrLevel,j] += delta*delta2 
+                # delta = msd - mean
+                # mean += delta / N[corrLevel,j]
+                # delta2 = msd - mean 
+                # variance[corrLevel,j] += delta*delta2 
                 C[corrLevel,j] += msd
 
     else:
         for j in range(int(p/m),p):
             N[corrLevel,j] += 1
             if corrtype == 1:
-                mean = C[corrLevel,j]/N[corrLevel,j]
-                stress_corr = D[corrLevel,0,0]*D[corrLevel,j,0]
-                delta = stress_corr - mean
-                mean += delta / N[corrLevel,j]
-                delta2 = stress_corr - mean 
-                variance[corrLevel,j] += delta*delta2 
-                C[corrLevel,j] += stress_corr
+                # mean = C[corrLevel,j]/N[corrLevel,j]
+                # stress_corr = D[corrLevel,0,0]*D[corrLevel,j,0]
+                # delta = stress_corr - mean
+                # mean += delta / N[corrLevel,j]
+                # delta2 = stress_corr - mean 
+                # variance[corrLevel,j] += delta*delta2 
+                C[corrLevel,j] += D[corrLevel,0,0]*D[corrLevel,j,0]
             if corrtype == 2:
-                mean = C[corrLevel,j]/N[corrLevel,j]
+                # mean = C[corrLevel,j]/N[corrLevel,j]
                 msd = (D[corrLevel,0,0]-D[corrLevel,j,0])**2 + (D[corrLevel,0,1]-D[corrLevel,j,1])**2 + (D[corrLevel,0,2]-D[corrLevel,j,2])**2
-                delta = msd - mean
-                mean += delta / N[corrLevel,j]
-                delta2 = msd - mean 
-                variance[corrLevel,j] += delta*delta2 
+                # delta = msd - mean
+                # mean += delta / N[corrLevel,j]
+                # delta2 = msd - mean 
+                # variance[corrLevel,j] += delta*delta2 
                 C[corrLevel,j] += msd
     
     if M[corrLevel]==0:
@@ -76,7 +74,7 @@ def add_to_correlator(result,corrLevel,D,temp_D,C,variance,N,A,M,corrtype):
 
 
 @cuda.jit
-def update_correlator(result_array,D,D_shift,C,var,N,A,M,corrtype):
+def update_correlator(result_array,D,D_shift,C,N,A,M,corrtype):
 
     i = cuda.blockIdx.x*cuda.blockDim.x + cuda.threadIdx.x #chain index
 
@@ -91,14 +89,14 @@ def update_correlator(result_array,D,D_shift,C,var,N,A,M,corrtype):
     for j in range(0,len(result_array[i])):
         result = result_array[i,j,:]
         if result[-1] == 1.0:
-            add_to_correlator(result,0,D[i],D_shift[i],C[i],var[i],N[i],A[i],M[i],corrtype[0])
+            add_to_correlator(result,0,D[i],D_shift[i],C[i],N[i],A[i],M[i],corrtype[0])
             
         for corrLevel in range(0,S_corr+1):
             if M[i,corrLevel] == m:
                 # for k in range(0,3):
                 #     temp[k] = A[i,corrLevel,k]/m #only used for smoothing method
-                if corrtype[0] == 1: add_to_correlator(A[i,corrLevel],int(corrLevel+1),D[i],D_shift[i],C[i],var[i],N[i],A[i],M[i],corrtype[0])
-                if corrtype[0] == 2: add_to_correlator(A[i,corrLevel],int(corrLevel+1),D[i],D_shift[i],C[i],var[i],N[i],A[i],M[i],corrtype[0])
+                if corrtype[0] == 1: add_to_correlator(A[i,corrLevel],int(corrLevel+1),D[i],D_shift[i],C[i],N[i],A[i],M[i],corrtype[0])
+                if corrtype[0] == 2: add_to_correlator(A[i,corrLevel],int(corrLevel+1),D[i],D_shift[i],C[i],N[i],A[i],M[i],corrtype[0])
                 A[i,corrLevel,0] = A[i,corrLevel,1] = A[i,corrLevel,2] = 0.0
                 M[i,corrLevel] = 0
     return 
@@ -117,7 +115,7 @@ def calc_corr(rawdata, calc_type, uplim, data_corr, corr_array):
     p = 8 #block transformation parameters
     m = 2 #block transformation parameters
     array_index = -1 #initialize array indexing for final results
-    for k in range(1,p*m):
+    for k in range(0,p*m):
         array_index+=1
         corr_block(i, data, k, data_corr, array_index, corr, calc_type) #get the average correlation and error for time lag k
     for l in range(1,int(uplim)):

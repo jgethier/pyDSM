@@ -356,7 +356,7 @@ class FSM_LINEAR(object):
                 print("Equilibrium calculation specified: G(t).")
                 calc_type = 1
 
-                while block_size*self.input_data['sim_time']/self.input_data['tau_K']>1e9: #check for memory limits for post processing calculations 
+                while block_size*self.input_data['sim_time']/self.input_data['tau_K']>1e8: #check for memory limits for post processing calculations 
                     block_size -= 100
                     if block_size < 100:
                         postprocess = False 
@@ -365,7 +365,7 @@ class FSM_LINEAR(object):
             elif self.input_data['EQ_calc']=='msd': #check for memory limits for post processing calculations
                 print("Equilbrium calculation specified: MSD.")
                 calc_type = 2
-                while block_size*self.input_data['sim_time']/self.input_data['tau_K']*3>1e9:
+                while block_size*self.input_data['sim_time']/self.input_data['tau_K']*3>1e8:
                     block_size -= 100
                     if block_size < 100:
                         postprocess = False 

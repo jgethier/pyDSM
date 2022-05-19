@@ -20,10 +20,16 @@ warnings.filterwarnings('ignore')
 
 class FSM_LINEAR(object):
 
-    def __init__(self,sim_ID,device_ID):
+    def __init__(self,sim_ID,device_ID,correlator):
         
         #simulation ID from run argument (>>python gpu_dsm sim_ID)
         self.sim_ID = sim_ID
+
+        #determine correlator (on the fly or post-process)
+        if correlator == 'otf':
+            self.postprocess = False
+        else:
+            self.postprocess = True 
         
         #read in input file and parameters
         if os.path.isfile('input.yaml'):
@@ -348,32 +354,35 @@ class FSM_LINEAR(object):
             postprocess = True
             d_kappa = cuda.to_device(np.array(self.input_data['kappa'],dtype=float))
         
+        postprocess = self.postprocess
+        
         #if not flow, check for equilibrium calculation type (G(t) or MSD)
         if not self.flow:
             block_size = self.input_data['Nchains'] #blocks of chains to be post-processed simultanously
-            postprocess = True
+            
             if self.input_data['EQ_calc']=='stress':
                 print("Equilibrium calculation specified: G(t).")
                 calc_type = 1
-
-                while block_size*self.input_data['sim_time']/self.input_data['tau_K']>1e8: #check for memory limits for post processing calculations 
-                    block_size -= 100
-                    if block_size < 100:
-                        postprocess = False 
-                        break 
+                if self.postprocess:
+                    while block_size*self.input_data['sim_time']/self.input_data['tau_K']>1e8: #check for memory limits for post processing calculations 
+                        block_size -= 100
+                        if block_size < 100:
+                            postprocess = False 
+                            break 
                 
             elif self.input_data['EQ_calc']=='msd': #check for memory limits for post processing calculations
                 print("Equilbrium calculation specified: MSD.")
                 calc_type = 2
-                while block_size*self.input_data['sim_time']/self.input_data['tau_K']*3>1e8:
-                    block_size -= 100
-                    if block_size < 100:
-                        postprocess = False 
-                        break 
+                if self.postprocess:
+                    while block_size*self.input_data['sim_time']/self.input_data['tau_K']*3>1e8:
+                        block_size -= 100
+                        if block_size < 100:
+                            postprocess = False 
+                            break 
             
             else:
                 sys.exit('Incorrect EQ_calc specified in input file. Please choose "stress" or "msd" for G(t) or MSD for the equilibrium calculation.')
-
+ 
         if not postprocess: #if simulation time * 100 > 1e9, use on the fly correlator (but will not report uncertainties)
             print("")
             print("Warning: simulation time is too large for postprocessing. Using on the fly correlator for equilibrium calculation. Uncertainty will not be reported.")

@@ -16,7 +16,7 @@ def gpu_dsm(narg, argv):
 			device_ID = int(sys.argv[k+1])
 			k+=1
 
-		if str(sys.argv[k])=='-c' and k+1 < narg:
+		if str(sys.argv[k])=="-c" and k+1 < narg:
 			correlator = str(sys.argv[k+1])
 			k+=1
 

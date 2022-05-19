@@ -355,7 +355,7 @@ class FSM_LINEAR(object):
             d_kappa = cuda.to_device(np.array(self.input_data['kappa'],dtype=float))
         
         postprocess = self.postprocess
-        
+
         #if not flow, check for equilibrium calculation type (G(t) or MSD)
         if not self.flow:
             block_size = self.input_data['Nchains'] #blocks of chains to be post-processed simultanously
@@ -376,17 +376,19 @@ class FSM_LINEAR(object):
                 if self.postprocess:
                     while block_size*self.input_data['sim_time']/self.input_data['tau_K']*3>1e8:
                         block_size -= 100
-                        if block_size < 100:
+                        if block_size < 100: 
                             postprocess = False 
                             break 
             
             else:
                 sys.exit('Incorrect EQ_calc specified in input file. Please choose "stress" or "msd" for G(t) or MSD for the equilibrium calculation.')
  
-        if not postprocess: #if simulation time * 100 > 1e9, use on the fly correlator (but will not report uncertainties)
+        if not postprocess and self.postprocess: #if simulation time * 100 > 1e9, use on the fly correlator (but will not report uncertainties)
             print("")
             print("Warning: simulation time is too large for postprocessing. Using on the fly correlator for equilibrium calculation. Uncertainty will not be reported.")
             print("")
+        elif not postprocess:
+            print("Using on the fly correlator for equilibrium calculation. Uncertainty in the correlation values will not be reported.")
 
         #keep track of first entanglement for MSD
         QN_first = np.zeros(shape=(chain.QN.shape[0],3)) 

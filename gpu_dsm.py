@@ -3,7 +3,6 @@ from core.main import FSM_LINEAR
 
 def gpu_dsm(narg, argv):
 
-	run_flag = True
 	k = 1
 	device_ID=0
 	sim_ID = 0

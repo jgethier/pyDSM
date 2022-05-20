@@ -529,7 +529,7 @@ class FSM_LINEAR(object):
                     res = np.zeros(shape=(chain.QN.shape[0],max_sync_time+1,3),dtype=float) 
             else:
                 max_sync_time = self.input_data['sim_time']
-                res = np.zeros(shape=(chain.QN.shape[0],100,4),dtype=float) 
+                res = np.zeros(shape=(chain.QN.shape[0],250,4),dtype=float) 
         
         #move result array, calc_type, and flow variables to device
         d_res = cuda.to_device(res) 

@@ -19,7 +19,6 @@ import core.gpu_random as gpu_rand
 import core.correlation as correlation
 
 warnings.filterwarnings('ignore')
-os.system('')
 
 class FSM_LINEAR(object):
 
@@ -637,7 +636,7 @@ class FSM_LINEAR(object):
                             step_count = 0
 
                     if postprocess:
-                    #write result of all chains to file
+                    #write result of all chains to file if postprocess correlator is used
                         if self.flow: #if flow, calculate flow stress tensor for each chain
                             ensemble_kernel.calc_flow_stress[blockspergrid,threadsperblock](d_Z,d_QN,d_res)
                         res_host = d_res.copy_to_host()

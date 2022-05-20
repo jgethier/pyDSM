@@ -1,4 +1,5 @@
 import os
+from site import check_enableusersite
 import sys
 import time
 import warnings
@@ -17,6 +18,7 @@ import core.gpu_random as gpu_rand
 import core.correlation as correlation
 
 warnings.filterwarnings('ignore')
+os.system('')
 
 class FSM_LINEAR(object):
 
@@ -454,7 +456,7 @@ class FSM_LINEAR(object):
         new_tau_CD = np.zeros(shape=(chain.QN.shape[0],chain.QN.shape[1]+1))
 
         if not postprocess:
-            #correlator parameters
+            #on the fly correlator parameters
             p = 64
             m = 8
             S_corr = int(math.ceil(np.log(self.input_data['sim_time']/self.input_data['tau_K']/p)/np.log(m)))
@@ -547,10 +549,10 @@ class FSM_LINEAR(object):
 
         #start progress bar
         if not postprocess:
-            total = None
+            progress_bar = {'total': None,'spinner': 'wait2'}
         else:
-            total = num_time_syncs
-        with alive_bar(total,bar='smooth') as bar:
+            progress_bar = {'total': num_time_syncs,'bar': 'smooth'}
+        with alive_bar(**progress_bar) as bar:
 
             #defer memory deallocation until after simulation is done
             with cuda.defer_cleanup():

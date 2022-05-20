@@ -11,7 +11,6 @@ import math
 import pickle
 from core.chain import ensemble_chains
 from core.pcd_tau import p_cd, p_cd_linear
-import core.random_gen as rng
 import core.ensemble_kernel as ensemble_kernel
 import core.gpu_random as gpu_rand 
 import core.correlation as correlation
@@ -157,6 +156,7 @@ class FSM_LINEAR(object):
         
         return 
 
+
     def write_com(self,num_sync,time,com_array):
         '''
         Write the CoM of all chains in ensemble
@@ -209,13 +209,14 @@ class FSM_LINEAR(object):
         
         #keeping track of the last simulation time for beginning of next array
         self.old_sync_time = time
+
     
     def load_results(self,filename,block_num,block_size,num_chains):
         '''
         Load in part of the binary .dat file into the result array
         Inputs: filename - filename of the data file
-                block_num - chain block number (total chains split into n blocks of size 1000)
-                num_chains - block_num*1000
+                block_num - chain block number (total chains split into n blocks of size block_size)
+                num_chains - block_num*block_size
         Returns: an array of data read from filename
         '''
         result_array = []
@@ -233,7 +234,6 @@ class FSM_LINEAR(object):
             except EOFError:
                 pass
 
-        #self.old_num_chains = num_chains+1
         return result_array
 
 
@@ -462,7 +462,6 @@ class FSM_LINEAR(object):
             #initialize arrays for correlator
             D_array = np.zeros(shape=(chain.QN.shape[0],S_corr,p,3),dtype=float)
             D_shift_array = np.zeros(shape=(chain.QN.shape[0],S_corr,p,3),dtype=float)
-            #var_array = np.zeros(shape=(chain.QN.shape[0],S_corr+1,p),dtype=float)
             C_array = np.zeros(shape=(chain.QN.shape[0],S_corr,p),dtype=float)
             N_array = np.zeros(shape=(chain.QN.shape[0],S_corr,p),dtype=float)
             A_array = np.zeros(shape=(chain.QN.shape[0],S_corr,3),dtype=float)
@@ -471,7 +470,6 @@ class FSM_LINEAR(object):
             #move correlator arrays to device
             d_D = cuda.to_device(D_array)
             d_D_shift = cuda.to_device(D_shift_array)
-            #d_var_array = cuda.to_device(var_array)
             d_C = cuda.to_device(C_array)
             d_N = cuda.to_device(N_array)
             d_A = cuda.to_device(A_array)
@@ -675,7 +673,6 @@ class FSM_LINEAR(object):
             if not postprocess:
                 C_array = d_C.copy_to_host()
                 N_array = d_N.copy_to_host()
-                #var_array = d_var_array.copy_to_host()
 
                 corr_time = []
                 corr_aver = []
@@ -685,12 +682,10 @@ class FSM_LINEAR(object):
                         for j in range(0,p):
                             corr_time.append(j*(m**corrLevel)*self.input_data['tau_K'])
                             corr_aver.append(np.sum(C_array[:,corrLevel,j]/N_array[:,corrLevel,j])/self.input_data['Nchains'])
-                            #corr_error.append(np.sum(np.sqrt(var_array[:,corrLevel,j]/(N_array[:,corrLevel,j]-1)),axis=0)/(self.input_data['Nchains']*np.sqrt(self.input_data['Nchains'])))
                     else:
                         for j in range(int(p/m),p):
                             corr_time.append(j*(m**corrLevel)*self.input_data['tau_K'])
                             corr_aver.append(np.sum(C_array[:,corrLevel,j]/N_array[:,corrLevel,j])/self.input_data['Nchains'])
-                            #corr_error.append(np.sum(np.sqrt(var_array[:,corrLevel,j]/(N_array[:,corrLevel,j]-1)),axis=0)/(self.input_data['Nchains']*np.sqrt(self.input_data['Nchains'])))
 
             else:
                 #read in data files for autocorrelation function and split into blocks of block_size chains (helps prevent reaching maximum memory)

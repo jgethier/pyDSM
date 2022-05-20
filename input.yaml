@@ -1,7 +1,7 @@
 beta: 1
 architecture: linear
-NK: 29 
-Nchains: 5000
+NK: 20
+Nchains: 10000
 kappa: 
 - 0.0
 - 0.0
@@ -16,7 +16,7 @@ CD_flag: 1
 PD_flag: 0
 EQ_calc: stress
 tau_K: 1
-sim_time: 3000
+sim_time: 10000
 
 #INPUT FILE STRUCTURE
 #beta - entanglement activity (1 for CFSM)

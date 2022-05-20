@@ -1,8 +1,6 @@
 import os
-from site import check_enableusersite
 import sys
 import time
-from turtle import pos
 import warnings
 import numpy as np
 from numba import cuda

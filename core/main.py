@@ -2,6 +2,7 @@ import os
 from site import check_enableusersite
 import sys
 import time
+from turtle import pos
 import warnings
 import numpy as np
 from numba import cuda
@@ -693,12 +694,9 @@ class FSM_LINEAR(object):
                             corr_time.append(j*(m**corrLevel)*self.input_data['tau_K'])
                             corr_aver.append(np.sum(C_array[:,corrLevel,j]/N_array[:,corrLevel,j],axis=0)/self.input_data['Nchains'])
                             #corr_error.append(np.sum(np.sqrt(var_array[:,corrLevel,j]/(N_array[:,corrLevel,j]-1)),axis=0)/(self.input_data['Nchains']*np.sqrt(self.input_data['Nchains'])))
-            
-                corr_error=np.zeros(shape=np.array(corr_aver).shape)
 
             else:
-                #read in data files for autocorrelation function and split into blocks of 1000 chains (helps prevent reaching maximum memory)
-                
+                #read in data files for autocorrelation function and split into blocks of block_size chains (helps prevent reaching maximum memory)
 
                 num_chain_blocks = math.ceil(self.input_data['Nchains']/block_size)
                 num_times = math.ceil(self.input_data['sim_time']/self.input_data['tau_K'])+1
@@ -763,27 +761,39 @@ class FSM_LINEAR(object):
                 corr_aver = average_corr/self.input_data['Nchains']  #average correlation
                 corr_error = average_error/(self.input_data['Nchains']*np.sqrt(self.input_data['Nchains'])) #average error from correlation
             
+            #write equilibrium calculation results to file
             if calc_type == 1:
                 #make combined result array and write to file
                 with open('./DSM_results/Gt_result_%d.txt'%self.sim_ID, "w") as f:
-                    f.write('time, G(t), Error\n')
-                    for m in range(0,len(corr_time)):
+                    if not postprocess:
+                        f.write('time, G(t)\n')
+                        for m in range(0,len(corr_time)):
+                                f.write("%d, %.4f \n"%(corr_time[m],corr_aver[m]))
+                    else:
+                        f.write('time, G(t), Error\n')
+                        for m in range(0,len(corr_time)):
                             f.write("%d, %.4f, %.4f \n"%(corr_time[m],corr_aver[m],corr_error[m]))
-                print('Done.')
+                if postprocess:
+                    print('Done.')
                 print('G(t) results written to Gt_result_%d.txt'%self.sim_ID)
             if calc_type == 2:
                 #make combined result array and write to file
                 with open('./DSM_results/MSD_result_%d.txt'%self.sim_ID, "w") as f:
                     f.write('time, MSD, Error\n')
                     for m in range(0,len(corr_time)):
+                        if not postprocess:
+                            f.write("%d, %.4f \n"%(corr_time[m],corr_aver[m]))
+                        else:
                             f.write("%d, %.4f, %.4f \n"%(corr_time[m],corr_aver[m],corr_error[m]))
-                print('Done.')
+                if postprocess:
+                    print('Done.')
                 print('MSD results written to MSD_result_%d.txt'%self.sim_ID)
 
-            t2 = time.time()
-            print('')
-            print("Total computational time: %.2f minutes."%((t2-t0)/60.0))
-        
+            #if postprocess correlator used, calculate time after calculation is finished
+            if postprocess:
+                t2 = time.time()
+                print("Total computational time: %.2f minutes."%((t2-t0)/60.0))
+            
 if __name__ == "__main__":
     run_dsm = FSM_LINEAR(1)
     run_dsm.main()

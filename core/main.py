@@ -765,11 +765,11 @@ class FSM_LINEAR(object):
                 #make combined result array and write to file
                 with open('./DSM_results/Gt_result_%d.txt'%self.sim_ID, "w") as f:
                     if not postprocess:
-                        f.write('time, G(t)\n')
+                        f.write('Time, G(t)\n')
                         for m in range(0,len(corr_time)):
                                 f.write("%d, %.4f \n"%(corr_time[m],corr_aver[m]))
                     else:
-                        f.write('time, G(t), Error\n')
+                        f.write('Time, G(t), Error\n')
                         for m in range(0,len(corr_time)):
                             f.write("%d, %.4f, %.4f \n"%(corr_time[m],corr_aver[m],corr_error[m]))
                 if postprocess:
@@ -778,11 +778,13 @@ class FSM_LINEAR(object):
             if calc_type == 2:
                 #make combined result array and write to file
                 with open('./DSM_results/MSD_result_%d.txt'%self.sim_ID, "w") as f:
-                    f.write('time, MSD, Error\n')
-                    for m in range(0,len(corr_time)):
-                        if not postprocess:
+                    if not postprocess:
+                        f.write('Time, MSD\n')
+                        for m in range(0,len(corr_time)):
                             f.write("%d, %.4f \n"%(corr_time[m],corr_aver[m]))
-                        else:
+                    else:
+                        f.write('Time, MSD, Error')
+                        for m in range(0,len(corr_time)):
                             f.write("%d, %.4f, %.4f \n"%(corr_time[m],corr_aver[m],corr_error[m]))
                 if postprocess:
                     print('Done.')

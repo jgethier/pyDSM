@@ -16,3 +16,10 @@ Install: cudatoolkits <-conda
 
 and replace 'num' with any integer (used for random seed generation and file name)
 ```
+
+FLAG ARGUMENTS:
+
+```
+-d device_num - if multiple GPUs are present, select device number (int)
+-c otf - force simulation to use on the fly (otf) correlator, but correlation errors will not be reported
+```

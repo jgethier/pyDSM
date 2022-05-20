@@ -463,13 +463,13 @@ class FSM_LINEAR(object):
             S_corr = int(math.ceil(np.log(self.input_data['sim_time']/self.input_data['tau_K']/p)/np.log(m)))
 
             #initialize arrays for correlator
-            D_array = np.zeros(shape=(chain.QN.shape[0],S_corr+1,p,3),dtype=float)
-            D_shift_array = np.zeros(shape=(chain.QN.shape[0],S_corr+1,p,3),dtype=float)
+            D_array = np.zeros(shape=(chain.QN.shape[0],S_corr,p,3),dtype=float)
+            D_shift_array = np.zeros(shape=(chain.QN.shape[0],S_corr,p,3),dtype=float)
             #var_array = np.zeros(shape=(chain.QN.shape[0],S_corr+1,p),dtype=float)
-            C_array = np.zeros(shape=(chain.QN.shape[0],S_corr+1,p),dtype=float)
-            N_array = np.zeros(shape=(chain.QN.shape[0],S_corr+1,p),dtype=float)
-            A_array = np.zeros(shape=(chain.QN.shape[0],S_corr+1,3),dtype=float)
-            M_array = np.zeros(shape=(chain.QN.shape[0],S_corr+1),dtype=int)
+            C_array = np.zeros(shape=(chain.QN.shape[0],S_corr,p),dtype=float)
+            N_array = np.zeros(shape=(chain.QN.shape[0],S_corr,p),dtype=float)
+            A_array = np.zeros(shape=(chain.QN.shape[0],S_corr,3),dtype=float)
+            M_array = np.zeros(shape=(chain.QN.shape[0],S_corr),dtype=int)
 
             #move correlator arrays to device
             d_D = cuda.to_device(D_array)
@@ -683,16 +683,16 @@ class FSM_LINEAR(object):
                 corr_time = []
                 corr_aver = []
                 
-                for corrLevel in range(0,S_corr+1):
+                for corrLevel in range(0,S_corr):
                     if corrLevel == 0:
                         for j in range(0,p):
                             corr_time.append(j*(m**corrLevel)*self.input_data['tau_K'])
-                            corr_aver.append(np.sum(C_array[:,corrLevel,j]/N_array[:,corrLevel,j],axis=0)/self.input_data['Nchains'])
+                            corr_aver.append(np.sum(C_array[:,corrLevel,j]/N_array[:,corrLevel,j])/self.input_data['Nchains'])
                             #corr_error.append(np.sum(np.sqrt(var_array[:,corrLevel,j]/(N_array[:,corrLevel,j]-1)),axis=0)/(self.input_data['Nchains']*np.sqrt(self.input_data['Nchains'])))
                     else:
                         for j in range(int(p/m),p):
                             corr_time.append(j*(m**corrLevel)*self.input_data['tau_K'])
-                            corr_aver.append(np.sum(C_array[:,corrLevel,j]/N_array[:,corrLevel,j],axis=0)/self.input_data['Nchains'])
+                            corr_aver.append(np.sum(C_array[:,corrLevel,j]/N_array[:,corrLevel,j])/self.input_data['Nchains'])
                             #corr_error.append(np.sum(np.sqrt(var_array[:,corrLevel,j]/(N_array[:,corrLevel,j]-1)),axis=0)/(self.input_data['Nchains']*np.sqrt(self.input_data['Nchains'])))
 
             else:

@@ -628,7 +628,7 @@ class FSM_LINEAR(object):
                             gpu_rand.refill_uniform_rand[blockspergrid,threadsperblock](self.rng_states, self.input_data['Nchains'], d_rand_used, d_uniform_rand)
                             
                             if not postprocess:
-                                correlation.update_correlator[blockspergrid,threadsperblock](d_res,d_D,d_D_shift,d_C,d_N,d_A,d_M,d_calc_type)
+                                correlation.update_correlator[blockspergrid,threadsperblock](d_reach_flag,d_res,d_D,d_D_shift,d_C,d_N,d_A,d_M,d_calc_type)
                             step_count = 0
 
                     if postprocess:
@@ -684,8 +684,9 @@ class FSM_LINEAR(object):
                             corr_aver.append(np.sum(C_array[:,corrLevel,j]/N_array[:,corrLevel,j])/self.input_data['Nchains'])
                     else:
                         for j in range(int(p/m),p):
-                            corr_time.append(j*(m**corrLevel)*self.input_data['tau_K'])
-                            corr_aver.append(np.sum(C_array[:,corrLevel,j]/N_array[:,corrLevel,j])/self.input_data['Nchains'])
+                            if j*(m**corrLevel)*self.input_data['tau_K'] <= self.input_data['sim_time']:
+                                corr_time.append(j*(m**corrLevel)*self.input_data['tau_K'])
+                                corr_aver.append(np.sum(C_array[:,corrLevel,j]/N_array[:,corrLevel,j])/self.input_data['Nchains'])
 
             else:
                 #read in data files for autocorrelation function and split into blocks of block_size chains (helps prevent reaching maximum memory)

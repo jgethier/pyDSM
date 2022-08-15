@@ -54,7 +54,7 @@ def add_to_correlator(result,corrLevel,D,temp_D,C,N,A,M,corrtype):
 
 
 @cuda.jit
-def update_correlator(result_array,D,D_shift,C,N,A,M,corrtype):
+def update_correlator(reach_flag,result_array,D,D_shift,C,N,A,M,corrtype):
 
     i = cuda.blockIdx.x*cuda.blockDim.x + cuda.threadIdx.x #chain index
 
@@ -62,6 +62,9 @@ def update_correlator(result_array,D,D_shift,C,N,A,M,corrtype):
 
     if i >= result_array.shape[0]:
         return
+
+    if reach_flag[i] == 1:
+        return 
 
     m = 8
     S_corr = D.shape[1]
@@ -76,9 +79,9 @@ def update_correlator(result_array,D,D_shift,C,N,A,M,corrtype):
                 if corrtype[0] == 1:
                     for k in range(0,3):
                         temp[k] = A[i,corrLevel,k]/m 
-                    add_to_correlator(temp,int(corrLevel),D[i],D_shift[i],C[i],N[i],A[i],M[i],corrtype[0])
+                    add_to_correlator(temp,corrLevel+1,D[i],D_shift[i],C[i],N[i],A[i],M[i],corrtype[0])
                 if corrtype[0] == 2: 
-                    add_to_correlator(A[i,corrLevel],int(corrLevel),D[i],D_shift[i],C[i],N[i],A[i],M[i],corrtype[0])
+                    add_to_correlator(A[i,corrLevel],corrLevel+1,D[i],D_shift[i],C[i],N[i],A[i],M[i],corrtype[0])
                 A[i,corrLevel,0] = A[i,corrLevel,1] = A[i,corrLevel,2] = 0.0
                 M[i,corrLevel] = 0
     return 

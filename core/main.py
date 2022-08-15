@@ -457,7 +457,7 @@ class FSM_LINEAR(object):
             #on the fly correlator parameters
             p = 64
             m = 8
-            S_corr = int(math.ceil(np.log(self.input_data['sim_time']/self.input_data['tau_K']/p)/np.log(m)))
+            S_corr = int(math.ceil(np.log(self.input_data['sim_time']/self.input_data['tau_K']/p)/np.log(m))+1)
 
             #initialize arrays for correlator
             D_array = np.zeros(shape=(chain.QN.shape[0],S_corr,p,3),dtype=float)

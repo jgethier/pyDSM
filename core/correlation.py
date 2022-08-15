@@ -8,7 +8,7 @@ def add_to_correlator(result,corrLevel,D,temp_D,C,N,A,M,corrtype):
     m = 8 #number of data values to average
     S_corr = int(D.shape[0]) #number of correlator levels
 
-    if corrLevel >= S_corr: #S+1 correlator levels, S depends on simulation length
+    if corrLevel >= S_corr+1: #S+1 correlator levels, S depends on simulation length
         return
 
     for j in range(1,p):
@@ -76,9 +76,9 @@ def update_correlator(result_array,D,D_shift,C,N,A,M,corrtype):
                 if corrtype[0] == 1:
                     for k in range(0,3):
                         temp[k] = A[i,corrLevel,k]/m 
-                    add_to_correlator(temp,int(corrLevel+1),D[i],D_shift[i],C[i],N[i],A[i],M[i],corrtype[0])
+                    add_to_correlator(temp,int(corrLevel),D[i],D_shift[i],C[i],N[i],A[i],M[i],corrtype[0])
                 if corrtype[0] == 2: 
-                    add_to_correlator(A[i,corrLevel],int(corrLevel+1),D[i],D_shift[i],C[i],N[i],A[i],M[i],corrtype[0])
+                    add_to_correlator(A[i,corrLevel],int(corrLevel),D[i],D_shift[i],C[i],N[i],A[i],M[i],corrtype[0])
                 A[i,corrLevel,0] = A[i,corrLevel,1] = A[i,corrLevel,2] = 0.0
                 M[i,corrLevel] = 0
     return 

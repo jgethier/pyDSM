@@ -8,7 +8,7 @@ def add_to_correlator(result,corrLevel,D,temp_D,C,N,A,M,corrtype):
     m = 8 #number of data values to average
     S_corr = int(D.shape[0]) #number of correlator levels
 
-    if corrLevel >= S_corr+1: #S+1 correlator levels, S depends on simulation length
+    if corrLevel >= S_corr: #S+1 correlator levels, S depends on simulation length
         return
 
     for j in range(1,p):

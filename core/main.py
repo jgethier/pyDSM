@@ -457,7 +457,7 @@ class FSM_LINEAR(object):
             #on the fly correlator parameters
             p = 64
             m = 8
-            S_corr = int(math.ceil(np.log(self.input_data['sim_time']/self.input_data['tau_K']/p)/np.log(m))+1)
+            S_corr = math.ceil(np.log(self.input_data['sim_time']/self.input_data['tau_K']/p)/np.log(m)) + 1 #number of correlator levels
 
             #initialize arrays for correlator
             D_array = np.zeros(shape=(chain.QN.shape[0],S_corr,p,3),dtype=float)
@@ -617,7 +617,7 @@ class FSM_LINEAR(object):
 
                        
                         #if random numbers are used (max array size is 250), change out the used values with new random numbers and advance the random seed number
-                        if step_count == 250:
+                        if step_count % 250 == 0:
 
                             gpu_rand.refill_gauss_rand_tauCD[blockspergrid,threadsperblock](self.rng_states, discrete, self.input_data['Nchains'], d_tau_CD_used_SD, True, self.input_data['CD_flag'], 
                                                                                             d_tau_CD_gauss_rand_SD, d_pcd_array,d_pcd_table_eq,d_pcd_table_cr, d_pcd_table_tau)
@@ -627,9 +627,11 @@ class FSM_LINEAR(object):
                            
                             gpu_rand.refill_uniform_rand[blockspergrid,threadsperblock](self.rng_states, self.input_data['Nchains'], d_rand_used, d_uniform_rand)
                             
-                            if not postprocess:
-                                correlation.update_correlator[blockspergrid,threadsperblock](d_reach_flag,d_res,d_D,d_D_shift,d_C,d_N,d_A,d_M,d_calc_type)
                             step_count = 0
+                        
+                        if step_count % 250 == 0:
+                            if not postprocess:
+                                correlation.update_correlator[blockspergrid,threadsperblock](d_res,d_D,d_D_shift,d_C,d_N,d_A,d_M,d_calc_type)
 
                     if postprocess:
                     #write result of all chains to file if postprocess correlator is used
@@ -645,7 +647,12 @@ class FSM_LINEAR(object):
                     bar()
             
         #SIMULATION ENDS---------------------------------------------------------------------------------------------------------------------------
-            
+        
+        #update correlator with last set of values
+        if step_count % 250 != 0:
+            if not postprocess:
+                correlation.update_correlator[blockspergrid,threadsperblock](d_res,d_D,d_D_shift,d_C,d_N,d_A,d_M,d_calc_type)
+
         t1 = time.time()
         print('')
         print("Total simulation time: %.2f minutes."%((t1-t0)/60.0))

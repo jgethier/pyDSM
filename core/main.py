@@ -631,7 +631,7 @@ class FSM_LINEAR(object):
                         
                         if step_count % 250 == 0:
                             if not postprocess:
-                                correlation.update_correlator[blockspergrid,threadsperblock](d_res,d_D,d_D_shift,d_C,d_N,d_A,d_M,d_calc_type)
+                                correlation.update_correlator[blockspergrid,threadsperblock](250,d_res,d_D,d_D_shift,d_C,d_N,d_A,d_M,d_calc_type)
 
                     if postprocess:
                     #write result of all chains to file if postprocess correlator is used
@@ -651,7 +651,7 @@ class FSM_LINEAR(object):
         #update correlator with last set of values
         if step_count % 250 != 0:
             if not postprocess:
-                correlation.update_correlator[blockspergrid,threadsperblock](d_res,d_D,d_D_shift,d_C,d_N,d_A,d_M,d_calc_type)
+                correlation.update_correlator[blockspergrid,threadsperblock](step_count,d_res,d_D,d_D_shift,d_C,d_N,d_A,d_M,d_calc_type)
 
         t1 = time.time()
         print('')

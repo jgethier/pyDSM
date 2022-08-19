@@ -453,12 +453,12 @@ def time_control_kernel(Z,QN,QN_first,NK,chain_time,tdt,result,calc_type,flow,re
     
     if i >= QN.shape[0]:
         return
-            
-    if reach_flag[i] != 0:
-        return
 
     if not postprocess:
         result[i,result_index,0] = result[i,result_index,1] = result[i,result_index,2] = result[i,result_index,3] = 0.0
+            
+    if reach_flag[i] != 0:
+        return
 
     if (chain_time[i] >= next_sync_time) and chain_time[i] <= (write_time[i]*time_resolution[0]):
         

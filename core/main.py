@@ -453,12 +453,12 @@ class FSM_LINEAR(object):
         new_t_cr = np.zeros(shape=(chain.QN.shape[0],chain.QN.shape[1]+1))
         new_tau_CD = np.zeros(shape=(chain.QN.shape[0],chain.QN.shape[1]+1))
 
+        #correlator parameters for both block transformation or on-the-fly
+        p = 8
+        m = 2
+        S_corr = math.ceil(np.log(self.input_data['sim_time']/self.input_data['tau_K']/p)/np.log(m)) + 1 #number of correlator levels
+        
         if not postprocess:
-            #on the fly correlator parameters
-            p = 8
-            m = 2
-            S_corr = math.ceil(np.log(self.input_data['sim_time']/self.input_data['tau_K']/p)/np.log(m)) + 1 #number of correlator levels
-
             #initialize arrays for correlator
             D_array = np.zeros(shape=(chain.QN.shape[0],S_corr,p,3),dtype=float)
             D_shift_array = np.zeros(shape=(chain.QN.shape[0],S_corr,p,3),dtype=float)
@@ -625,7 +625,7 @@ class FSM_LINEAR(object):
                         if self.flow:
                             reach_flag_host = d_reach_flag.copy_to_host()
                             sum_reach_flags = int(np.sum(reach_flag_host)) 
-                        elif not self.flow:
+                        elif not self.flow and self.step_count%250==0:
                             reach_flag_host = d_reach_flag.copy_to_host()
                             sum_reach_flags = int(np.sum(reach_flag_host)) 
 
@@ -646,10 +646,6 @@ class FSM_LINEAR(object):
                     bar()
             
         #SIMULATION ENDS---------------------------------------------------------------------------------------------------------------------------
-        #update correlator with last set of values
-        if self.step_count % 250 != 0:
-            if not postprocess:
-                correlation.update_correlator[blockspergrid,threadsperblock](self.step_count,d_res,d_D,d_D_shift,d_C,d_N,d_A,d_M,d_calc_type)
 
         t1 = time.time()
         print('')
@@ -699,11 +695,6 @@ class FSM_LINEAR(object):
                 num_chain_blocks = math.ceil(self.input_data['Nchains']/block_size)
                 num_times = math.ceil(self.input_data['sim_time']/self.input_data['tau_K'])+1
 
-                #parameters for block transformation
-                p = 8
-                m = 2
-                S_corr=math.ceil(np.log(self.input_data['sim_time']/self.input_data['tau_K']/p)/np.log(m))+1
-
                 #counter for initializing final array size and set the correlated times in corr_time array
                 count = 0
                 corr_time = [] #array to hold correlated times (log scale) 
@@ -721,7 +712,7 @@ class FSM_LINEAR(object):
 
                 average_corr = np.zeros(shape=len(corr_time))
                 average_error = np.zeros(shape=len(corr_time))
-
+                
                 print("Loading stress data and calculating correlation function, this may take some time...",end="",flush=True)
                 for n in range(0,num_chain_blocks):
                     if n == num_chain_blocks-1:

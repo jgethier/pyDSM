@@ -93,7 +93,7 @@ def calc_corr(rawdata, calc_type, S_corr, data_corr, corr_array):
     
     data = rawdata[0:,0:,i] #raw data for chain i
     corr = corr_array[0:,i] #store correlation values for time t and t+lag for chain i
-        
+    
     p = 8 #block transformation parameters
     m = 2 #block transformation parameters
     array_index = -1 #initialize array indexing for final results
@@ -102,12 +102,18 @@ def calc_corr(rawdata, calc_type, S_corr, data_corr, corr_array):
             for j in range(0,p):
                 array_index+=1
                 time_lag = j*(m**corrLevel)
-                corr_block(i, data, time_lag, data_corr, array_index, corr, calc_type) #get the average correlation and error for time lag
+                if time_lag >= data.shape[1]:
+                    break
+                else:
+                    corr_block(i, data, time_lag, data_corr, array_index, corr, calc_type) #get the average correlation and error for time lag
         else:
             for j in range(int(p/m),p):
                 array_index += 1
                 time_lag = j*(m**corrLevel)
-                corr_block(i, data, time_lag, data_corr, array_index, corr, calc_type) #get the average correlation and error for time lag
+                if time_lag >= data.shape[1]:
+                    break
+                else:
+                    corr_block(i, data, time_lag, data_corr, array_index, corr, calc_type) #get the average correlation and error for time lag
     return
 
 
@@ -116,7 +122,7 @@ def corr_block(chainIdx, chainData, tj, corr, arr_index, xV, calc_type):
     
     #number of correlations
     n = int(len(chainData[0,0:])-tj)
-    
+
     #begin correlation averaging for timelag tj
     xav = 0
     for r in range(0,n):

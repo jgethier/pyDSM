@@ -507,7 +507,7 @@ class FSM_LINEAR(object):
         
         #set simulation time and entanglement lifetime array
         simulation_time = self.input_data['sim_time'] #total simulation time
-        step_count = 0                                #used to calculate number of jump processes for checking random number arrays
+        self.step_count = 0                                #used to calculate number of jump processes for checking random number arrays
         enttime_bins = np.zeros(shape=(20000),dtype=int) #bins to hold entanglement lifetime distributions
         
         #initialize some time constants used for simulation
@@ -575,7 +575,7 @@ class FSM_LINEAR(object):
                         #control chain time and stress calculation
                         ensemble_kernel.time_control_kernel[blockspergrid, threadsperblock](d_Z,d_QN,d_QN_first,d_NK,d_chain_time,
                                                                                                     d_tdt,d_res,d_calc_type,d_flow,d_reach_flag,next_sync_time,
-                                                                                                    max_sync_time,d_write_time,d_time_resolution,step_count%250,postprocess)
+                                                                                                    max_sync_time,d_write_time,d_time_resolution,self.step_count%250,postprocess)
                         
                         #find jump type and location
                         ensemble_kernel.choose_step_kernel[blockspergrid, threadsperblock](d_Z, d_shift_probs, d_sum_W_sorted, d_uniform_rand, d_rand_used, 
@@ -595,18 +595,7 @@ class FSM_LINEAR(object):
                                                                                             d_tau_CD_gauss_rand_CD)
 
                         #update step counter for arrays and array positions
-                        step_count+=1
-                        
-                        
-                        if self.flow:
-                            reach_flag_host = d_reach_flag.copy_to_host()
-                            sum_reach_flags = int(np.sum(reach_flag_host)) 
-                        elif not self.flow and step_count % 250 == 0: #check every 250 jump processes if all chains reached time for sync
-                            reach_flag_host = d_reach_flag.copy_to_host()
-                            sum_reach_flags = int(np.sum(reach_flag_host)) 
-
-                        #if all reach_flags are 1, sum should equal number of chains and all chains are synced
-                        reach_flag_all = (sum_reach_flags == int(self.input_data['Nchains'])) 
+                        self.step_count+=1
                     
                         #record entanglement lifetime distribution
                         if analytic==False:
@@ -617,8 +606,7 @@ class FSM_LINEAR(object):
 
                        
                         #if random numbers are used (max array size is 250), change out the used values with new random numbers and advance the random seed number
-                        if step_count % 250 == 0:
-
+                        if self.step_count % 250 == 0:
                             gpu_rand.refill_gauss_rand_tauCD[blockspergrid,threadsperblock](self.rng_states, discrete, self.input_data['Nchains'], d_tau_CD_used_SD, True, self.input_data['CD_flag'], 
                                                                                             d_tau_CD_gauss_rand_SD, d_pcd_array,d_pcd_table_eq,d_pcd_table_cr, d_pcd_table_tau)
                             if self.input_data['CD_flag'] == 1:
@@ -627,11 +615,22 @@ class FSM_LINEAR(object):
                            
                             gpu_rand.refill_uniform_rand[blockspergrid,threadsperblock](self.rng_states, self.input_data['Nchains'], d_rand_used, d_uniform_rand)
                             
-                            step_count = 0
+                            self.step_count = 0
                         
-                        if step_count % 250 == 0:
+                        if self.step_count % 250 == 0:
                             if not postprocess:
                                 correlation.update_correlator[blockspergrid,threadsperblock](250,d_res,d_D,d_D_shift,d_C,d_N,d_A,d_M,d_calc_type)
+                        
+                        #check if chains have reached sim_time or time_sync
+                        if self.flow:
+                            reach_flag_host = d_reach_flag.copy_to_host()
+                            sum_reach_flags = int(np.sum(reach_flag_host)) 
+                        elif not self.flow:
+                            reach_flag_host = d_reach_flag.copy_to_host()
+                            sum_reach_flags = int(np.sum(reach_flag_host)) 
+
+                        #if all reach_flags are 1, sum should equal number of chains and all chains are synced
+                        reach_flag_all = (sum_reach_flags == int(self.input_data['Nchains'])) 
 
                     if postprocess:
                     #write result of all chains to file if postprocess correlator is used
@@ -647,11 +646,10 @@ class FSM_LINEAR(object):
                     bar()
             
         #SIMULATION ENDS---------------------------------------------------------------------------------------------------------------------------
-        
         #update correlator with last set of values
-        if step_count % 250 != 0:
+        if self.step_count % 250 != 0:
             if not postprocess:
-                correlation.update_correlator[blockspergrid,threadsperblock](step_count,d_res,d_D,d_D_shift,d_C,d_N,d_A,d_M,d_calc_type)
+                correlation.update_correlator[blockspergrid,threadsperblock](self.step_count,d_res,d_D,d_D_shift,d_C,d_N,d_A,d_M,d_calc_type)
 
         t1 = time.time()
         print('')
@@ -699,13 +697,12 @@ class FSM_LINEAR(object):
                 #read in data files for autocorrelation function and split into blocks of block_size chains (helps prevent reaching maximum memory)
 
                 num_chain_blocks = math.ceil(self.input_data['Nchains']/block_size)
-                num_times = math.ceil(self.input_data['sim_time']/self.input_data['tau_K'])
-                
+                num_times = math.ceil(self.input_data['sim_time']/self.input_data['tau_K'])+1
+
                 #parameters for block transformation
                 p = 8
                 m = 2
-                S_corr=math.ceil(np.log(num_times/p)/np.log(m))+1
-                sampf = 1/self.input_data['tau_K']
+                S_corr=math.ceil(np.log(self.input_data['sim_time']/self.input_data['tau_K']/p)/np.log(m))+1
 
                 #counter for initializing final array size and set the correlated times in corr_time array
                 count = 0
@@ -718,8 +715,9 @@ class FSM_LINEAR(object):
                     
                     else:
                         for j in range(int(p/m),p):
-                            count += 1
-                            corr_time.append(j*(m**corrLevel)*self.input_data['tau_K'])
+                            if j*(m**corrLevel)*self.input_data['tau_K'] <= self.input_data['sim_time']:
+                                count += 1
+                                corr_time.append(j*(m**corrLevel)*self.input_data['tau_K'])
 
                 average_corr = np.zeros(shape=len(corr_time))
                 average_error = np.zeros(shape=len(corr_time))
@@ -734,7 +732,6 @@ class FSM_LINEAR(object):
                     if calc_type == 1: #stress data if EQ_calc is 'stress'
                         stress_array = np.array(self.load_results(self.stress_output,block_num=n,block_size=block_size,num_chains=num_chains)) 
                         rawdata = np.array([stress_array])
-                        
                         
                     elif calc_type == 2: #CoM data if EQ_calc is 'msd' (this is a little messy, since each dimension is stored separately)
                         com_array_x = np.array(self.load_results(self.com_output_x,block_num=n,block_size=block_size,num_chains=num_chains)) #load center of mass in x file

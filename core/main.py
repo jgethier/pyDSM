@@ -455,8 +455,8 @@ class FSM_LINEAR(object):
 
         if not postprocess:
             #on the fly correlator parameters
-            p = 64
-            m = 8
+            p = 8
+            m = 2
             S_corr = math.ceil(np.log(self.input_data['sim_time']/self.input_data['tau_K']/p)/np.log(m)) + 1 #number of correlator levels
 
             #initialize arrays for correlator

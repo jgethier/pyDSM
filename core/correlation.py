@@ -5,7 +5,7 @@ import math
 def add_to_correlator(data,corrLevel,D,temp_D,C,N,A,M,corrtype):
 
     p = int(D.shape[1]) #number of data values in correlator level
-    m = 8 #number of data values to average
+    m = 2 #number of data values to average
 
     for j in range(1,p):
         for k in range(0,3):
@@ -61,7 +61,7 @@ def update_correlator(n,result_array,D,D_shift,C,N,A,M,corrtype):
     if i >= result_array.shape[0]:
         return
 
-    m = 8
+    m = 2
     S_corr = D.shape[1]
     
     for j in range(0,n): #search through result array and find stress values that need to be added

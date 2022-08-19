@@ -699,12 +699,12 @@ class FSM_LINEAR(object):
                 #read in data files for autocorrelation function and split into blocks of block_size chains (helps prevent reaching maximum memory)
 
                 num_chain_blocks = math.ceil(self.input_data['Nchains']/block_size)
-                num_times = math.ceil(self.input_data['sim_time']/self.input_data['tau_K'])+1
+                num_times = math.ceil(self.input_data['sim_time']/self.input_data['tau_K'])
                 
                 #parameters for block transformation
                 p = 8
                 m = 2
-                uplim=int(math.floor(np.log(num_times/p)/np.log(m)))
+                S_corr=math.floor(np.log(num_times/p)/np.log(m))
                 sampf = 1/self.input_data['tau_K']
 
                 #counter for initializing final array size and set the correlated times in corr_time array
@@ -713,7 +713,7 @@ class FSM_LINEAR(object):
                 for k in range(0,p*m):
                     count+=1
                     corr_time.append(int(k/sampf))
-                for l in range(1,int(uplim)):
+                for l in range(1,int(S_corr)):
                     for k in range(p*m**l,p*m**(l+1),m**l):
                         count+=1
                         corr_time.append(int(k/sampf))
@@ -750,7 +750,7 @@ class FSM_LINEAR(object):
                     d_corr_array = cuda.to_device(corr_array)
 
                     #run the block transformation and calculate correlation with error
-                    correlation.calc_corr[blockspergrid,threadsperblock](d_rawdata,calc_type,uplim,d_data_corr,d_corr_array)
+                    correlation.calc_corr[blockspergrid,threadsperblock](d_rawdata,calc_type,S_corr,d_data_corr,d_corr_array)
 
                     #copy results to host and calculate average over all chains 
                     data_corr_host = d_data_corr.copy_to_host()

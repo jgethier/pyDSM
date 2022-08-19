@@ -240,7 +240,7 @@ class FSM_LINEAR(object):
     def main(self):
         #set variables and start simulation (also any post-processing after simulation is completed)
 
-        #set cuda grid dimensions
+        #set cuda  grid dimensions
         dimBlock = (32,32)
         dimGrid_x = (self.input_data['Nchains']+dimBlock[0]-1)//dimBlock[0]
         dimGrid_y = (self.input_data['NK']+dimBlock[1]-1)//dimBlock[1]
@@ -704,19 +704,22 @@ class FSM_LINEAR(object):
                 #parameters for block transformation
                 p = 8
                 m = 2
-                S_corr=math.floor(np.log(num_times/p)/np.log(m))
+                S_corr=math.ceil(np.log(num_times/p)/np.log(m))+1
                 sampf = 1/self.input_data['tau_K']
 
                 #counter for initializing final array size and set the correlated times in corr_time array
                 count = 0
                 corr_time = [] #array to hold correlated times (log scale) 
-                for k in range(0,p*m):
-                    count+=1
-                    corr_time.append(int(k/sampf))
-                for l in range(1,int(S_corr)):
-                    for k in range(p*m**l,p*m**(l+1),m**l):
-                        count+=1
-                        corr_time.append(int(k/sampf))
+                for corrLevel in range(0,S_corr):
+                    if corrLevel == 0:
+                        for j in range(0,p):
+                            count+= 1
+                            corr_time.append(j*(m**corrLevel)*self.input_data['tau_K'])
+                    
+                    else:
+                        for j in range(int(p/m),p):
+                            count += 1
+                            corr_time.append(j*(m**corrLevel)*self.input_data['tau_K'])
 
                 average_corr = np.zeros(shape=len(corr_time))
                 average_error = np.zeros(shape=len(corr_time))

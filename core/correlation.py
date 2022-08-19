@@ -84,7 +84,7 @@ def update_correlator(n,result_array,D,D_shift,C,N,A,M,corrtype):
     return 
 
 @cuda.jit
-def calc_corr(rawdata, calc_type, uplim, data_corr, corr_array):
+def calc_corr(rawdata, calc_type, S_corr, data_corr, corr_array):
     
     i = cuda.blockIdx.x*cuda.blockDim.x + cuda.threadIdx.x #chain index
     
@@ -97,13 +97,17 @@ def calc_corr(rawdata, calc_type, uplim, data_corr, corr_array):
     p = 8 #block transformation parameters
     m = 2 #block transformation parameters
     array_index = -1 #initialize array indexing for final results
-    for k in range(0,p*m):
-        array_index+=1
-        corr_block(i, data, k, data_corr, array_index, corr, calc_type) #get the average correlation and error for time lag k
-    for l in range(1,int(uplim)):
-        for j in range(p*m**l,p*m**(l+1),m**l):
-            array_index += 1
-            corr_block(i, data, j, data_corr, array_index, corr, calc_type) #get the average correlation and error for time lag j
+    for corrLevel in range(0,S_corr):
+        if corrLevel == 0:
+            for j in range(0,p):
+                array_index+=1
+                time_lag = j*(m**corrLevel)
+                corr_block(i, data, time_lag, data_corr, array_index, corr, calc_type) #get the average correlation and error for time lag
+        else:
+            for j in range(int(p/m),p):
+                array_index += 1
+                time_lag = j*(m**corrLevel)
+                corr_block(i, data, time_lag, data_corr, array_index, corr, calc_type) #get the average correlation and error for time lag
     return
 
 

@@ -52,7 +52,7 @@ def add_to_correlator(data,corrLevel,D,temp_D,C,N,A,M,corrtype):
 
 
 @cuda.jit
-def update_correlator(n,result_array,D,D_shift,C,N,A,M,corrtype):
+def update_correlator(result_array,D,D_shift,C,N,A,M,corrtype):
 
     i = cuda.blockIdx.x*cuda.blockDim.x + cuda.threadIdx.x #chain index
 
@@ -64,7 +64,7 @@ def update_correlator(n,result_array,D,D_shift,C,N,A,M,corrtype):
     m = 2
     S_corr = D.shape[1]
     
-    for j in range(0,n): #search through result array and find stress values that need to be added
+    for j in range(0,len(result_array[i])): #search through result array and find stress values that need to be added
         result = result_array[i,j,:]
         if result[-1] == 1.0: #if last value in results array is 1, add to correlator (1 means stress was recorded for chain i at index j)
             add_to_correlator(result,0,D[i],D_shift[i],C[i],N[i],A[i],M[i],corrtype[0])

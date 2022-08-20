@@ -570,7 +570,7 @@ class FSM_LINEAR(object):
                         
                         #calculate probabilities for entangled strand of a chain (create, destroy, or shuffle)
                         ensemble_kernel.calc_probs_strands[dimGrid, dimBlock](d_Z,d_QN,d_flow,d_tdt,d_kappa,d_tau_CD,d_shift_probs,
-                                                                                    d_CDflag,d_CD_create_prefact,d_beta,d_NK)
+                                                                              d_CDflag,d_CD_create_prefact,d_beta,d_NK)
                         
                         #control chain time and stress calculation
                         ensemble_kernel.time_control_kernel[blockspergrid, threadsperblock](d_Z,d_QN,d_QN_first,d_NK,d_chain_time,
@@ -618,8 +618,8 @@ class FSM_LINEAR(object):
                             self.step_count = 0
                         
                         if self.step_count % 250 == 0:
-                            if not postprocess:
-                                correlation.update_correlator[blockspergrid,threadsperblock](250,d_res,d_D,d_D_shift,d_C,d_N,d_A,d_M,d_calc_type)
+                            if not postprocess and not self.flow:
+                                correlation.update_correlator[blockspergrid,threadsperblock](d_res,d_D,d_D_shift,d_C,d_N,d_A,d_M,d_calc_type)
                         
                         #check if chains have reached sim_time or time_sync
                         if self.flow:

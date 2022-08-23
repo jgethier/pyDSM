@@ -1,6 +1,38 @@
 import math
 from numba import cuda, float32
 
+@cuda.reduce
+def sum_reduce(a, b):
+    return a + b
+
+@cuda.jit
+def reduce_flag_array(D,bool_val):
+
+    #sbuf = cuda.shared.array(shape=0,dtype=float32)
+
+    ty = cuda.threadIdx.y
+    bh = cuda.blockDim.y
+    index_i = ty
+
+    L = len(D)
+    su = 0
+    while index_i < L:
+        su += D[index_i]
+        index_i +=bh
+
+    if cuda.blockIdx.x*cuda.blockDim.x + cuda.threadIdx.x == 0:
+        bool_val[0] = (int(su)==int(D.shape[0]))
+        # print(bool_val)
+    # if su == D.shape[0]:
+    #     bool_val = True
+    # else:
+    #     bool_val = False
+
+    # sbuf[ty] = su
+    # cuda.syncthreads()
+
+    return 
+
 @cuda.jit(device=True)
 def apply_flow(Q,dt,kappa):
     '''
@@ -62,7 +94,7 @@ def calc_flow_stress(Z,QN,stress):
 
         
 @cuda.jit
-def calc_probs_strands(Z,QN,flow,tdt,kappa,tau_CD,shift_probs,CD_flag,CD_create_prefact,beta,NK):
+def calc_strand_prob(Z,QN,flow,tdt,kappa,tau_CD,shift_probs,CD_flag,CD_create_prefact,beta,NK):
     '''
     GPU function to calculate probabilities for Kuhn step shuffling, entanglement creation or destruction
     Inputs: Z - number of entangled strands for each chain
@@ -192,7 +224,7 @@ def calc_probs_strands(Z,QN,flow,tdt,kappa,tau_CD,shift_probs,CD_flag,CD_create_
 
 
 @cuda.jit
-def calc_probs_chainends(Z, QN, shift_probs, CD_flag, CD_create_prefact, beta, Nk):
+def calc_chainends_prob(Z, QN, shift_probs, CD_flag, CD_create_prefact, beta, Nk):
     '''
     GPU function to calculate probabilities for Kuhn step shuffling, entanglement creation or destruction at chain ends
     Inputs: Z - number of entangled strands for each chain

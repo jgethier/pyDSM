@@ -1,4 +1,4 @@
-from numba import cuda, float32
+from numba import cuda, float64
 import math
 
 @cuda.jit(device=True)
@@ -6,6 +6,9 @@ def add_to_correlator(data,corrLevel,D,temp_D,C,N,A,M,corrtype):
 
     p = int(D.shape[1]) #number of data values in correlator level
     m = 2 #number of data values to average
+
+    if corrLevel >= D.shape[0]:
+        return 
 
     for j in range(1,p):
         for k in range(0,3):
@@ -46,42 +49,38 @@ def add_to_correlator(data,corrLevel,D,temp_D,C,N,A,M,corrtype):
     #update counter
     M[corrLevel] += 1
 
-    
-    
     return
 
 
 @cuda.jit
-def update_correlator(result_array,D,D_shift,C,N,A,M,corrtype):
+def update_correlator(n,result_array,D,D_shift,C,N,A,M,corrtype):
 
     i = cuda.blockIdx.x*cuda.blockDim.x + cuda.threadIdx.x #chain index
-
-    temp = cuda.local.array(3,float32)
 
     if i >= result_array.shape[0]:
         return
 
     m = 2
     S_corr = D.shape[1]
-    
-    for j in range(0,len(result_array[i])): #search through result array and find stress values that need to be added
-        result = result_array[i,j,:]
-        if result[-1] == 1.0: #if last value in results array is 1, add to correlator (1 means stress was recorded for chain i at index j)
+    chain_result = result_array[i]
+
+    for j in range(0,n): #search through result array and find stress values that need to be added
+        result = chain_result[j]
+        if result[3] == 1.0: #if last value in results array is 1, add to correlator (1 means stress was recorded for chain i at index j)
             add_to_correlator(result,0,D[i],D_shift[i],C[i],N[i],A[i],M[i],corrtype[0])
 
         for corrLevel in range(0,S_corr): #after updating correlator level 0 with result value (above), check if accumulator needs to be sent to next level
             if M[i,corrLevel] == m:
                 if corrtype[0] == 1:
                     for k in range(0,3):
-                        temp[k] = A[i,corrLevel,k]/m 
-                    add_to_correlator(temp,corrLevel+1,D[i],D_shift[i],C[i],N[i],A[i],M[i],corrtype[0])
+                        A[i,corrLevel,k] /= float(m)
+                    add_to_correlator(A[i,corrLevel],corrLevel+1,D[i],D_shift[i],C[i],N[i],A[i],M[i],corrtype[0])
                 if corrtype[0] == 2: 
                     add_to_correlator(A[i,corrLevel],corrLevel+1,D[i],D_shift[i],C[i],N[i],A[i],M[i],corrtype[0])
                 A[i,corrLevel,0] = A[i,corrLevel,1] = A[i,corrLevel,2] = 0.0
                 M[i,corrLevel] = 0
-            else:
-                pass
     return 
+
 
 @cuda.jit
 def calc_corr(rawdata, calc_type, S_corr, data_corr, corr_array):

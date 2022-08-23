@@ -237,7 +237,7 @@ class FSM_LINEAR(object):
         return result_array
 
 
-    def main(self):
+    def run(self):
         #set variables and start simulation (also any post-processing after simulation is completed)
 
         #set cuda  grid dimensions
@@ -506,7 +506,6 @@ class FSM_LINEAR(object):
         d_tau_CD_used_CD=cuda.to_device(tau_CD_used_CD)
         
         #set simulation time and entanglement lifetime array
-        simulation_time = self.input_data['sim_time'] #total simulation time
         self.step_count = 0                                #used to calculate number of jump processes for checking random number arrays
         enttime_bins = np.zeros(shape=(20000),dtype=int) #bins to hold entanglement lifetime distributions
         
@@ -519,8 +518,8 @@ class FSM_LINEAR(object):
             if postprocess:
                 max_sync_time = 100 #arbitrary, just setting every chain to sync at t = 100 (TODO: determine how efficient this is)
                 #set max sync time to simulation time if simulation time is less than sync time
-                if max_sync_time > simulation_time:
-                    max_sync_time = simulation_time
+                if max_sync_time > self.input_data['sim_time']:
+                    max_sync_time = self.input_data['sim_time']
                 if calc_type == 1: #result array (G(t) or MSD) dimensions are set based on EQ_calc
                     res = np.zeros(shape=(chain.QN.shape[0],max_sync_time+1,1),dtype=float) #initialize result array (stress or CoM)
                 elif calc_type == 2:
@@ -543,11 +542,8 @@ class FSM_LINEAR(object):
         #timer start
         t0 = time.time()
 
-        #start progress bar
-        if not postprocess:
-            progress_bar = {'total': None,'spinner': 'wait2'}
-        else:
-            progress_bar = {'total': num_time_syncs,'bar': 'smooth'}
+        
+        progress_bar = {'total': None,'bar': 'smooth', 'spinner':None,'manual':True}
         with alive_bar(**progress_bar) as bar:
 
             #defer memory deallocation until after simulation is done
@@ -557,7 +553,7 @@ class FSM_LINEAR(object):
                 for x_sync in range(1,num_time_syncs+1):
 
                     if x_sync == num_time_syncs:
-                        next_sync_time = simulation_time
+                        next_sync_time = self.input_data['sim_time']
                     else:
                         next_sync_time = x_sync*max_sync_time
                     
@@ -569,7 +565,7 @@ class FSM_LINEAR(object):
                     while not reach_flag_all:
                         
                         #calculate probabilities for entangled strand of a chain (create, destroy, or shuffle)
-                        ensemble_kernel.calc_probs_strands[dimGrid, dimBlock](d_Z,d_QN,d_flow,d_tdt,d_kappa,d_tau_CD,d_shift_probs,
+                        ensemble_kernel.calc_strand_prob[dimGrid, dimBlock](d_Z,d_QN,d_flow,d_tdt,d_kappa,d_tau_CD,d_shift_probs,
                                                                               d_CDflag,d_CD_create_prefact,d_beta,d_NK)
                         
                         #control chain time and stress calculation
@@ -596,6 +592,15 @@ class FSM_LINEAR(object):
 
                         #update step counter for arrays and array positions
                         self.step_count+=1
+
+                        #if OTF correlator, update progress bar based on chain times
+                        if (self.step_count%50==0) and (not postprocess):
+                            check_time = d_write_time.copy_to_host()
+                            sum_time = 0
+                            for i in range(0,len(check_time)):
+                                sum_time += int(check_time[i])
+                            total_progress = round(sum_time/self.input_data['Nchains']/self.input_data['sim_time'],2)
+                            bar(total_progress)
                     
                         #record entanglement lifetime distribution
                         if analytic==False:
@@ -614,20 +619,19 @@ class FSM_LINEAR(object):
                                                                                             d_tau_CD_gauss_rand_CD, d_pcd_array,d_pcd_table_eq,d_pcd_table_cr, d_pcd_table_tau)
                            
                             gpu_rand.refill_uniform_rand[blockspergrid,threadsperblock](self.rng_states, self.input_data['Nchains'], d_rand_used, d_uniform_rand)
+                        
+                            if (not postprocess) and (not self.flow):
+                                correlation.update_correlator[blockspergrid,threadsperblock](250,d_res,d_D,d_D_shift,d_C,d_N,d_A,d_M,d_calc_type)
                             
                             self.step_count = 0
-                        
-                        if self.step_count % 250 == 0:
-                            if not postprocess and not self.flow:
-                                correlation.update_correlator[blockspergrid,threadsperblock](d_res,d_D,d_D_shift,d_C,d_N,d_A,d_M,d_calc_type)
                         
                         #check if chains have reached sim_time or time_sync
                         if self.flow:
                             reach_flag_host = d_reach_flag.copy_to_host()
                             sum_reach_flags = int(np.sum(reach_flag_host)) 
-                        elif not self.flow and self.step_count%250==0:
+                        elif (not self.flow) and (self.step_count%250==0):
                             reach_flag_host = d_reach_flag.copy_to_host()
-                            sum_reach_flags = int(np.sum(reach_flag_host)) 
+                            sum_reach_flags = int(np.sum(reach_flag_host))
 
                         #if all reach_flags are 1, sum should equal number of chains and all chains are synced
                         reach_flag_all = (sum_reach_flags == int(self.input_data['Nchains'])) 
@@ -642,11 +646,12 @@ class FSM_LINEAR(object):
                         elif calc_type == 2: #if MSD, write CoM 
                             self.write_com(x_sync,next_sync_time,res_host)
                   
-                    #update progress bar
-                    bar()
+                    #if not using OTF correlator, update progress bar
+                    if postprocess:
+                        bar(x_sync/num_time_syncs)
             
         #SIMULATION ENDS---------------------------------------------------------------------------------------------------------------------------
-
+        
         t1 = time.time()
         print('')
         print("Total simulation time: %.2f minutes."%((t1-t0)/60.0))
@@ -672,6 +677,7 @@ class FSM_LINEAR(object):
         
         if not self.flow:
             if not postprocess:
+                #get OTF correlator results
                 C_array = d_C.copy_to_host()
                 N_array = d_N.copy_to_host()
 
@@ -688,7 +694,6 @@ class FSM_LINEAR(object):
                             if j*(m**corrLevel)*self.input_data['tau_K'] <= self.input_data['sim_time']:
                                 corr_time.append(j*(m**corrLevel)*self.input_data['tau_K'])
                                 corr_aver.append(np.sum(C_array[:,corrLevel,j]/N_array[:,corrLevel,j])/self.input_data['Nchains'])
-
             else:
                 #read in data files for autocorrelation function and split into blocks of block_size chains (helps prevent reaching maximum memory)
 
@@ -746,9 +751,11 @@ class FSM_LINEAR(object):
                     #copy results to host and calculate average over all chains 
                     data_corr_host = d_data_corr.copy_to_host()
                     
+                    #running sum of time correlation averages for chains in block
                     average_corr += np.sum(data_corr_host[:,:,0],axis=0)
                     average_error += np.sum(data_corr_host[:,:,1],axis=0)
 
+                #divide running sum by number of chains
                 corr_aver = average_corr/self.input_data['Nchains']  #average correlation
                 corr_error = average_error/(self.input_data['Nchains']*np.sqrt(self.input_data['Nchains'])) #average error from correlation
             
@@ -767,6 +774,7 @@ class FSM_LINEAR(object):
                 if postprocess:
                     print('Done.')
                 print('G(t) results written to Gt_result_%d.txt'%self.sim_ID)
+
             if calc_type == 2:
                 #make combined result array and write to file
                 with open('./DSM_results/MSD_result_%d.txt'%self.sim_ID, "w") as f:

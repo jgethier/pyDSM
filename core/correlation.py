@@ -1,11 +1,12 @@
 from numba import cuda, float64
 import math
 
+#correlator parameters
+p = 16 
+m = 2
+
 @cuda.jit(device=True)
 def add_to_correlator(data,corrLevel,D,temp_D,C,N,A,M,corrtype):
-
-    p = int(D.shape[1]) #number of data values in correlator level
-    m = 2 #number of data values to average
 
     if corrLevel >= D.shape[0]:
         return 
@@ -60,7 +61,6 @@ def update_correlator(n,result_array,D,D_shift,C,N,A,M,corrtype):
     if i >= result_array.shape[0]:
         return
 
-    m = 2
     S_corr = D.shape[1]
     chain_result = result_array[i]
 
@@ -73,7 +73,7 @@ def update_correlator(n,result_array,D,D_shift,C,N,A,M,corrtype):
             if M[i,corrLevel] == m:
                 if corrtype[0] == 1:
                     for k in range(0,3):
-                        A[i,corrLevel,k] /= float(m)
+                        A[i,corrLevel,k] /= m
                     add_to_correlator(A[i,corrLevel],corrLevel+1,D[i],D_shift[i],C[i],N[i],A[i],M[i],corrtype[0])
                 if corrtype[0] == 2: 
                     add_to_correlator(A[i,corrLevel],corrLevel+1,D[i],D_shift[i],C[i],N[i],A[i],M[i],corrtype[0])
@@ -93,8 +93,6 @@ def calc_corr(rawdata, calc_type, S_corr, data_corr, corr_array):
     data = rawdata[0:,0:,i] #raw data for chain i
     corr = corr_array[0:,i] #store correlation values for time t and t+lag for chain i
     
-    p = 8 #block transformation parameters
-    m = 2 #block transformation parameters
     array_index = -1 #initialize array indexing for final results
     for corrLevel in range(0,S_corr):
         if corrLevel == 0:

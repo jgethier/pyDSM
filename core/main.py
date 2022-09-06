@@ -454,8 +454,8 @@ class FSM_LINEAR(object):
         new_tau_CD = np.zeros(shape=(chain.QN.shape[0],chain.QN.shape[1]+1))
 
         #correlator parameters for both block transformation or on-the-fly
-        p = 8
-        m = 2
+        p = correlation.p
+        m = correlation.m
         S_corr = math.ceil(np.log(self.input_data['sim_time']/self.input_data['tau_K']/p)/np.log(m)) + 1 #number of correlator levels
         
         if not postprocess:

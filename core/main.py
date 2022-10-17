@@ -14,12 +14,13 @@ from core.pcd_tau import p_cd, p_cd_linear
 import core.ensemble_kernel as ensemble_kernel
 import core.gpu_random as gpu_rand 
 import core.correlation as correlation
+from core.fit import CURVE_FIT
 
 warnings.filterwarnings('ignore')
 
 class FSM_LINEAR(object):
 
-    def __init__(self,sim_ID,device_ID,correlator):
+    def __init__(self,sim_ID,device_ID,output_dir,correlator,fit=False):
         
         #simulation ID from run argument (>>python gpu_dsm sim_ID)
         self.sim_ID = sim_ID
@@ -29,6 +30,9 @@ class FSM_LINEAR(object):
             self.postprocess = False
         else:
             self.postprocess = True 
+
+        #set fit to True if G(t) will be fit 
+        self.fit = fit
         
         #read in input file and parameters
         if os.path.isfile('input.yaml'):
@@ -36,9 +40,9 @@ class FSM_LINEAR(object):
                 self.input_data = yaml.load(f, Loader=yaml.FullLoader)
                 
             #get results path ready
-            if not os.path.exists('./DSM_results/'):
-                os.mkdir('DSM_results')
-            self.output_path = './DSM_results/'
+            if not os.path.exists(output_dir):
+                os.mkdir(output_dir)
+            self.output_dir = output_dir
                 
         else:
             sys.exit("No input file found.")
@@ -86,8 +90,8 @@ class FSM_LINEAR(object):
         Q_sorted = np.sort(Q)
         L_sorted = np.sort(L)
         
-        Q_file = os.path.join(self.output_path,'distr_Q_%s_%d.txt'%(distr,self.sim_ID))
-        L_file = os.path.join(self.output_path,'distr_L_%s_%d.txt'%(distr,self.sim_ID))
+        Q_file = os.path.join(self.output_dir,'distr_Q_%s_%d.txt'%(distr,self.sim_ID))
+        L_file = os.path.join(self.output_dir,'distr_L_%s_%d.txt'%(distr,self.sim_ID))
         
         np.savetxt(Q_file, Q_sorted)
         np.savetxt(L_file, L_sorted)
@@ -107,9 +111,9 @@ class FSM_LINEAR(object):
         #if first time sync, need to include 0 and initialize file path
         if num_sync == 1:
             if self.flow:
-                self.stress_output = os.path.join(self.output_path,'stress_%d.txt'%self.sim_ID)
+                self.stress_output = os.path.join(self.output_dir,'stress_%d.txt'%self.sim_ID)
             else:
-                self.stress_output = os.path.join(self.output_path,'stress_%d.dat'%self.sim_ID)
+                self.stress_output = os.path.join(self.output_dir,'stress_%d.dat'%self.sim_ID)
             self.old_sync_time = 0
             time_index = 0
         
@@ -167,9 +171,9 @@ class FSM_LINEAR(object):
         '''
         
         if num_sync == 1: #if first time sync, need to include 0 and initialize file path
-            self.com_output_x = os.path.join(self.output_path, 'CoM_%d_x.dat'%self.sim_ID)
-            self.com_output_y = os.path.join(self.output_path, 'CoM_%d_y.dat'%self.sim_ID)
-            self.com_output_z = os.path.join(self.output_path, 'CoM_%d_z.dat'%self.sim_ID)
+            self.com_output_x = os.path.join(self.output_dir, 'CoM_%d_x.dat'%self.sim_ID)
+            self.com_output_y = os.path.join(self.output_dir, 'CoM_%d_y.dat'%self.sim_ID)
+            self.com_output_z = os.path.join(self.output_dir, 'CoM_%d_z.dat'%self.sim_ID)
             self.old_sync_time = 0
             time_index = 0
         
@@ -397,7 +401,7 @@ class FSM_LINEAR(object):
         self.save_distributions('initial',chain.QN,chain.Z)
 
         #save initial Z distribution to file
-        np.savetxt(os.path.join(self.output_path,'Z_initial_%d.txt'%self.sim_ID),chain.Z,fmt='%d')
+        np.savetxt(os.path.join(self.output_dir,'Z_initial_%d.txt'%self.sim_ID),chain.Z,fmt='%d')
 
         #initialize arrays for finding jump index
         found_index = np.zeros(shape=(chain.QN.shape[0]),dtype=int)
@@ -663,7 +667,7 @@ class FSM_LINEAR(object):
         #calculate entanglement lifetime distribution
         if analytic == False:
             enttime_run_sum = 0
-            filename = os.path.join(self.output_path,'./f_dt_%d.txt'%self.sim_ID)
+            filename = os.path.join(self.output_dir,'./f_dt_%d.txt'%self.sim_ID)
             with open(filename, 'w') as f:
                 for k in range(0,len(enttime_bins)):
                     if enttime_bins[k]!=0:
@@ -671,7 +675,7 @@ class FSM_LINEAR(object):
                         f.write('%d  %d\n'%(k,enttime_bins[k]))
                 
         #save final distributions to file
-        np.savetxt(os.path.join(self.output_path,'Z_final_%d.txt'%self.sim_ID),Z_final,fmt='%d')
+        np.savetxt(os.path.join(self.output_dir,'Z_final_%d.txt'%self.sim_ID),Z_final,fmt='%d')
         self.save_distributions('final',QN_final,Z_final)
         
         
@@ -762,7 +766,7 @@ class FSM_LINEAR(object):
             #write equilibrium calculation results to file
             if calc_type == 1:
                 #make combined result array and write to file
-                with open('./DSM_results/Gt_result_%d.txt'%self.sim_ID, "w") as f:
+                with open(os.path.join(self.output_dir,'Gt_result_%d.txt'%self.sim_ID), "w") as f:
                     if not postprocess:
                         f.write('Time, G(t)\n')
                         for m in range(0,len(corr_time)):
@@ -777,7 +781,7 @@ class FSM_LINEAR(object):
 
             if calc_type == 2:
                 #make combined result array and write to file
-                with open('./DSM_results/MSD_result_%d.txt'%self.sim_ID, "w") as f:
+                with open(os.path.join(self.output_dir,'MSD_result_%d.txt'%self.sim_ID), "w") as f:
                     if not postprocess:
                         f.write('Time, MSD\n')
                         for m in range(0,len(corr_time)):
@@ -795,8 +799,14 @@ class FSM_LINEAR(object):
                 t2 = time.time()
                 print("Total computational time: %.2f minutes."%((t2-t0)/60.0))
             
+        if self.fit:
+            gt_fit = CURVE_FIT(os.path.join(self.output_dir,'Gt_result_%d.txt'%self.sim_ID),os.path.join(self.output_dir,'fit_results'))
+            gt_fit.fit()
+
+
+
 if __name__ == "__main__":
-    run_dsm = FSM_LINEAR(1)
+    run_dsm = FSM_LINEAR(1,0,None)
     run_dsm.main()
 
 

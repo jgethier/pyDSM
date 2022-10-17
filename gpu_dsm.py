@@ -1,31 +1,33 @@
-import sys
+import argparse 
 from core.main import FSM_LINEAR
 
-def gpu_dsm(narg, argv):
+def gpu_dsm():
 
-	k = 1
-	device_ID=0
-	sim_ID = 0
-	correlator = 'default'
-	while k < narg:
-		if k == 1:
-			sim_ID = int(argv[k])
+	parser = argparse.ArgumentParser(description='Run pyDSM with specified arguments.')
 
-		if str(argv[k])=="-d" and k+1 < narg:
-			device_ID = int(argv[k+1])
-			k+=1
+	parser.add_argument('sim_ID', type=int, nargs='?',default=0,
+                    help='An integer for the simulation ID.')
+	parser.add_argument('-d', type=int, nargs='?',default=0,
+                    help='An integer for the device ID.')
+	parser.add_argument('-c', type=str, nargs='?',default='MuNCH',
+                    help='Which correlator to use (otf or munch).')
+	parser.add_argument('-o', type=str, nargs='?',default='./DSM_results',
+					help='Specify output directory.')
+	parser.add_argument("--fit", action="store_true", help='A flag to turn on G(t) fit.')
 
-		if str(argv[k])=="-c" and k+1 < narg:
-			correlator = str(argv[k+1])
-			k+=1
+	args = parser.parse_args()
 
-		k+=1
+	sim_ID = args.sim_ID
+	device_ID = args.d
+	output_dir = args.o
+	correlator = args.c 
+	fit = args.fit 
 
-	run_dsm = FSM_LINEAR(sim_ID,device_ID,correlator)
+	run_dsm = FSM_LINEAR(sim_ID,device_ID,output_dir,correlator,fit)
 	run_dsm.run()
 
 	return
 
 if __name__ == "__main__":
-	gpu_dsm(len(sys.argv), sys.argv)
+	gpu_dsm()
 

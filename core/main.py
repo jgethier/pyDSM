@@ -800,8 +800,12 @@ class FSM_LINEAR(object):
                 print("Total computational time: %.2f minutes."%((t2-t0)/60.0))
             
         if self.fit:
+            print("")
+            print("Fitting G(t)...")
             gt_fit = CURVE_FIT(os.path.join(self.output_dir,'Gt_result_%d.txt'%self.sim_ID),os.path.join(self.output_dir,'fit_results'))
             gt_fit.fit()
+            print("")
+            print("G* predictions saved to file.")
 
 
 

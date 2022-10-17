@@ -81,16 +81,18 @@ class CURVE_FIT(object):
         ax1.set_ylabel(r'G(t/$\tau_c$)/($\rho RT/M_w$)')
 
         #get standard deviation of G(t) and calculate 95% confidence interval
-        Gt_error = self.Gt_MMM_stdev_vec(time=gt_result_x,cov=cov)
-        Gp_error = self.Gp_MMM_stdev_vec(omega=omegaArr,cov=cov)
-        Gdp_error = self.Gdp_MMM_stdev_vec(omega=omegaArr,cov=cov)
+        if self.return_error:
+            Gt_error = self.Gt_MMM_stdev_vec(time=gt_result_x,cov=cov)
+            Gp_error = self.Gp_MMM_stdev_vec(omega=omegaArr,cov=cov)
+            Gdp_error = self.Gdp_MMM_stdev_vec(omega=omegaArr,cov=cov)
 
         #plotting results
         Gt = self.Gt_MMM_vec(time=gt_result_x, params=params)
         ax1.plot(gt_result_x, Gt, c='black', label=r'Fit',zorder=3)
-        ax1.fill_between(gt_result_x,Gt+Gt_error*1.96,Gt-Gt_error*1.96,color='gray',alpha=0.5,label=r'95% confidence interval')
         ax1.scatter(gt_result_x, gt_result_y,edgecolor='black',c='r', label=r'Simulation',zorder=2)
-        ax1.errorbar(gt_result_x, gt_result_y,yerr=error, fmt='',linewidth=0,elinewidth=2,c='r',capsize=4,zorder=1,markersize=0,label='Standard Error')
+        if self.return_error:
+            ax1.fill_between(gt_result_x,Gt+Gt_error*1.96,Gt-Gt_error*1.96,color='gray',alpha=0.5,label=r'95% confidence interval')
+            ax1.errorbar(gt_result_x, gt_result_y,yerr=error, fmt='',linewidth=0,elinewidth=2,c='r',capsize=4,zorder=1,markersize=0,label=r'Standard Error')
 
         #legend
         plt.legend(frameon=False)
@@ -123,25 +125,38 @@ class CURVE_FIT(object):
         Gdp = self.Gdp_MMM_vec(omega=omegaArr,params=params)
         ax2.plot(omegaArr,self.Gp_MMM_vec(omega=omegaArr,params=params), c='k', label=r'$G^\prime$')
         ax2.plot(omegaArr,self.Gdp_MMM_vec(omega=omegaArr,params=params), c='k',linestyle='--', label=r'$G^{\prime\prime}$')
-        ax2.fill_between(omegaArr,Gp+Gp_error*1.96,Gp-Gp_error*1.96,color='gray',alpha=0.5,label=r'95% confidence interval')
-        ax2.fill_between(omegaArr,Gdp+Gdp_error*1.96,Gdp-Gdp_error*1.96,color='gray',alpha=0.5)
+        if self.return_error:
+            ax2.fill_between(omegaArr,Gp+Gp_error*1.96,Gp-Gp_error*1.96,color='gray',alpha=0.5,label=r'95% confidence interval')
+            ax2.fill_between(omegaArr,Gdp+Gdp_error*1.96,Gdp-Gdp_error*1.96,color='gray',alpha=0.5)
 
         #legend and log-log scale
         plt.legend(frameon=False)
         ax2.set_yscale('log')
         ax2.set_xscale('log')
         
-        #write G(t) predictions and standard deviation to file
-        with open(os.path.join(self.output_path,"predictions_Gt.txt"),"w") as f:
-            f.write("G(t)" + '\t' + "sigma[G(t)]"+'\n')
-            for i in range(0,len(Gt)):
-                f.write('%.5g'%Gt[i]+'\t'+'%.5g'%Gt_error[i]+'\n')
+        if self.return_error:
+            #write G(t) predictions and standard deviation to file
+            with open(os.path.join(self.output_path,"predictions_Gt.txt"),"w") as f:
+                f.write("t" + '\t' + "G(t)" + '\t' + "sigma[G(t)]"+'\n')
+                for i in range(0,len(Gt)):
+                    f.write('%d'%gt_result_x[i] + '\t' + '%.5g'%Gt[i]+'\t'+'%.5g'%Gt_error[i]+'\n')
 
-        #write G' and G'' predictions and standard deviation to file
-        with open(os.path.join(self.output_path,"predictions_Gp_Gpp.txt"),"w") as f:
-            f.write("omega" + '\t' + "G'(omega)" + '\t' + "sigma[G'(omega)]" + '\t' +"G''(omega)" + '\t' + "sigma[G''(omega)]"+'\n')
-            for i in range(0,len(Gp)):
-                f.write('%.5g'%omegaArr[i]+'\t'+'%.5g'%Gp[i]+'\t'+'%.5g'%Gp_error[i]+'\t'+'%.5g'%Gdp[i]+'\t'+'%.5g'%Gdp_error[i]+'\n')
+            #write G' and G'' predictions and standard deviation to file
+            with open(os.path.join(self.output_path,"predictions_Gp_Gpp.txt"),"w") as f:
+                f.write("omega" + '\t' + "G'(omega)" + '\t' + "sigma[G'(omega)]" + '\t' +"G''(omega)" + '\t' + "sigma[G''(omega)]"+'\n')
+                for i in range(0,len(Gp)):
+                    f.write('%.5g'%omegaArr[i]+'\t'+'%.5g'%Gp[i]+'\t'+'%.5g'%Gp_error[i]+'\t'+'%.5g'%Gdp[i]+'\t'+'%.5g'%Gdp_error[i]+'\n')
+
+        else:
+            with open(os.path.join(self.output_path,"predictions_Gt.txt"),"w") as f:
+                f.write("t" + '\t' + "G(t)" + '\n')
+                for i in range(0,len(Gt)):
+                    f.write('%d'%gt_result_x[i] + '\t' + '%.5g'%Gt[i]+'\n')
+
+            with open(os.path.join(self.output_path,"predictions_Gp_Gpp.txt"),"w") as f:
+                f.write("omega" + '\t' + "G'(omega)" + '\t' +"G''(omega)" + '\n')
+                for i in range(0,len(Gp)):
+                    f.write('%.5g'%omegaArr[i]+'\t'+'%.5g'%Gp[i]+'\t'+'%.5g'%Gdp[i]+'\n')
 
         plt.show()
 
@@ -331,9 +346,11 @@ class CURVE_FIT(object):
             y = np.array([float(line.split(",")[1]) for line in lines]) #y values (G(t))
             try:
                 s = np.array([float(line.split(",")[2]) for line in lines]) #standard error
+                self.return_error = True 
             except:
-                print("G(t) error not found. Using standard error of 1 for minimizing Chi^2.")
+                print("G(t) error not found. Confidence intervals will not be reported.")
                 s = np.ones(len(x))
+                self.return_error = False 
 
         GN0=y[0] #G at t=0
         cutoff_list = np.array([np.argmax(y[1:]-y[:-1]>0), np.argmax(y<0), self.find_nearest(y,0.01*GN0), np.size(x)]) #list to determine where to cut G(t) off at long times
@@ -377,7 +394,8 @@ class CURVE_FIT(object):
         #print best parameters
         print("")
         print("Best fit parameters: \n", np.round(best_params,5))
-        print("Standard deviation in parameters: \n",best_error)
+        if self.return_error:
+            print("Standard deviation in parameters: \n",best_error)
 
         #save lambda and g values to file
         li = lambdaArrInit=np.geomspace(self.tstart,self.tfinal,best_modes)

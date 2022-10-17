@@ -26,7 +26,7 @@ FLAG ARGUMENTS:
 ```
 -h, --help - show help message and exit
 -d [device_num] - if multiple GPUs are present, select device number
--c [correlator] - force simulation to use on-the-fly (otf) correlator, but correlation errors will not be reported
+-c [otf] - force simulation to use on-the-fly (otf) correlator, but correlation errors will not be reported
 -o [output_dir] - specify output directory
--f, --fit - a flag to turn on G(t) fitting after simulation is done. 
+--fit - a flag to turn on G(t) fitting after simulation is done. 
 ```

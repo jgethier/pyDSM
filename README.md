@@ -6,7 +6,7 @@ To run a simulation:
 ```
 Create and activate a python environment that runs python 3.7 or greater.
 
-Install: numpy, math, pyyaml, numba, alive-progress <-pip
+Install: numpy, math, pyyaml, numba, matplotlib, alive-progress <-pip
 Install: cudatoolkits <-conda
 
 1) Set input parameters in input.yaml

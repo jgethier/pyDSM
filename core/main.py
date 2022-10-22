@@ -121,12 +121,12 @@ class FSM_LINEAR(object):
 
         combined = np.hstack((time_array.T, np.array([[np.mean(Z_array)]]).T, np.array([[np.std(Z_array)**2]]).T, np.array([[np.mean(fraction_NK)]]).T, np.array([[np.std(fraction_NK)**2]]).T))
 
-        if os.path.isfile(Z_output):
-            with open(Z_output,'a') as f:
-                np.savetxt(f, combined, delimiter=',', fmt='%.8f')
-        else:
+        if self.old_sync_time == self.input_data['flow_time']:
             with open(Z_output,'w') as f:
                 f.write('time, <Z>, Z_variance, <f_NK>, f_NK_variance\n')
+                np.savetxt(f, combined, delimiter=',', fmt='%.8f')
+        else:
+            with open(Z_output,'a') as f:
                 np.savetxt(f, combined, delimiter=',', fmt='%.8f')
 
         #keeping track of the last simulation time for beginning of next array

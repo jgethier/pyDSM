@@ -71,8 +71,8 @@ def calc_EQ_afterflow(Z,QN,NK,track_f_NK):
     total_NK = NK[0]
 
     count_NK = 0
-    for j in range(1,int(Z[i])-1):
-        count_NK += int(QN[i,j,3])
+    count_NK += int(QN[i,0,3])
+    count_NK += int(QN[i,int(Z[i])-1,3])
     
     track_f_NK[i] = count_NK/total_NK
 

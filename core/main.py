@@ -700,7 +700,7 @@ class FSM_LINEAR(object):
 
                         elif not self.flow and self.turn_flow_off:
                             ensemble_kernel.calc_flow_stress[blockspergrid,threadsperblock](d_Z,d_QN,d_res)
-                            ensemble_kernel.calc_EQ_afterflow[blockspergrid,threadsperblock](d_Z,d_QN,d_track_f_NK)
+                            ensemble_kernel.calc_EQ_afterflow[blockspergrid,threadsperblock](d_Z,d_QN,d_NK,d_track_f_NK)
                             Z_array = d_Z.copy_to_host()
                             fraction_NK = d_track_f_NK.copy_to_host()
                             self.write_afterflow_stats(x_sync,next_sync_time,Z_array,fraction_NK)

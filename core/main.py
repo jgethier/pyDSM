@@ -102,7 +102,7 @@ class FSM_LINEAR(object):
 
         return
 
-    def write_Z_stats(self,num_sync,time,Z_array):
+    def write_afterflow_stats(self,num_sync,time,Z_array,fraction_NK):
 
         #if first time sync, need to include 0 and initialize file path
     
@@ -119,14 +119,14 @@ class FSM_LINEAR(object):
         time_array = np.arange(self.old_sync_time,time+0.5,time_resolution)
         time_array = np.reshape(time_array[time_index:],(1,len(time_array[time_index:])))
 
-        combined = np.hstack((time_array.T, np.array([[np.mean(Z_array)]]).T, np.array([[np.std(Z_array)]]).T))
+        combined = np.hstack((time_array.T, np.array([[np.mean(Z_array)]]).T, np.array([[np.std(Z_array)**2]]).T, np.array([[np.mean(fraction_NK)]]).T, np.array([[np.std(fraction_NK)**2]]).T))
 
         if os.path.isfile(Z_output):
             with open(Z_output,'a') as f:
                 np.savetxt(f, combined, delimiter=',', fmt='%.8f')
         else:
             with open(Z_output,'w') as f:
-                f.write('time, <Z>, variance\n')
+                f.write('time, <Z>, Z_variance, <f_NK>, f_NK_variance\n')
                 np.savetxt(f, combined, delimiter=',', fmt='%.8f')
 
         #keeping track of the last simulation time for beginning of next array
@@ -702,7 +702,9 @@ class FSM_LINEAR(object):
                             ensemble_kernel.calc_flow_stress[blockspergrid,threadsperblock](d_Z,d_QN,d_res)
                             ensemble_kernel.calc_EQ_afterflow[blockspergrid,threadsperblock](d_Z,d_QN,d_track_f_NK)
                             Z_array = d_Z.copy_to_host()
-                            self.write_Z_stats(x_sync,next_sync_time,Z_array)
+                            fraction_NK = d_track_f_NK.copy_to_host()
+                            self.write_afterflow_stats(x_sync,next_sync_time,Z_array,fraction_NK)
+
                         res_host = d_res.copy_to_host()
                         if calc_type == 1: #if G(t), write tau_xy
                             self.write_stress(x_sync,next_sync_time,res_host)

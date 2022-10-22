@@ -1,10 +1,10 @@
 beta: 1
 architecture: linear
-NK: 20
-Nchains: 3000
+NK: 29
+Nchains: 5000
 kappa: 
 - 0.0
-- 0.0
+- 0.006
 - 0.0 
 - 0.0
 - 0.0
@@ -16,7 +16,8 @@ CD_flag: 1
 PD_flag: 0
 EQ_calc: stress
 tau_K: 1
-sim_time: 4000
+sim_time: 10000
+flow_time: 3000
 
 #INPUT FILE STRUCTURE
 #beta - entanglement activity (1 for CFSM)
@@ -38,3 +39,4 @@ sim_time: 4000
 #EQ_calc - options: stress or msd, determines whether G(t) or MSD is calculated
 #tau_K - time step resolution for stress calculation, minimum value is 1
 #sim_time: total simulation time (tau_K)
+#flow_time: total flow time (set to 0 if flow_time = sim_time, else set to 0 < flow_time < sim_time to turn off flow during simulation)

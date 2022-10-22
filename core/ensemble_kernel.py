@@ -61,6 +61,17 @@ def reset_chain_flag(reach_flag):
     return 
 
 @cuda.jit
+def calc_EQ_afterflow(Z,QN,track_f_NK):
+
+    i = cuda.blockIdx.x*cuda.blockDim.x + cuda.threadIdx.x
+
+    if i>= QN.shape[0]:
+        return 
+
+    return 
+
+
+@cuda.jit
 def calc_flow_stress(Z,QN,stress):
     '''
     GPU function that calculates the flow stress tensor (only used when EQ_calc is set to 'msd')
@@ -478,7 +489,7 @@ def choose_step_kernel(Z,shift_probs,sum_W_sorted,uniform_rand,rand_used,found_i
 
 
 @cuda.jit
-def time_control_kernel(Z,QN,QN_first,NK,chain_time,tdt,result,calc_type,flow,reach_flag,next_sync_time,max_sync_time,write_time,time_resolution,result_index,postprocess):
+def time_control_kernel(Z,QN,QN_first,NK,chain_time,tdt,result,calc_type,flow,flow_off,reach_flag,next_sync_time,max_sync_time,write_time,time_resolution,result_index,postprocess):
     
     
     i = cuda.blockIdx.x*cuda.blockDim.x + cuda.threadIdx.x #chain index
@@ -502,7 +513,7 @@ def time_control_kernel(Z,QN,QN_first,NK,chain_time,tdt,result,calc_type,flow,re
         
     if (chain_time[i] > write_time[i]*time_resolution[0]): #if chain time reaches next time to record stress/CoM (every time_resolution)
         
-        if not bool(flow[0]):
+        if not bool(flow[0]) and not bool(flow_off[0]):
             
             tz = int(Z[i])
             

@@ -13,7 +13,14 @@ def gpu_dsm():
                     help='Specify which correlator to use (otf or munch).')
 	parser.add_argument('-o', metavar='path/to/output/',type=str, nargs='?',default='./DSM_results',
 					help='Specify output directory.')
-	parser.add_argument("-f", "--fit", action="store_true", help='A flag to turn on G(t) fit.')
+	parser.add_argument("-f", "--fit", action="store_true", 
+					help='A flag to turn on G(t) fit.')
+	parser.add_argument('--distr',action="store_true",
+					help='Save initial and final distributions for Q, Lpp, and Z.')
+	parser.add_argument("-l","--load",metavar="/path/to/loadfile",type=str,nargs='?',
+					help='Load in checkpoint file.')
+	parser.add_argument('-s','--save',metavar='filename',type=str,default='checkpoint.dat',
+					help='Save simulation checkpoint to file.')
 
 	args = parser.parse_args()
 
@@ -22,8 +29,11 @@ def gpu_dsm():
 	output_dir = args.o
 	correlator = args.c 
 	fit = args.fit 
+	distr= args.distr
+	load_file = args.load
+	save_file = args.save
 
-	run_dsm = FSM_LINEAR(sim_ID,device_ID,output_dir,correlator,fit)
+	run_dsm = FSM_LINEAR(sim_ID,device_ID,output_dir,correlator,fit,distr,load_file,save_file)
 	run_dsm.run()
 
 	return

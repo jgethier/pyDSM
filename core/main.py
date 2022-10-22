@@ -739,7 +739,7 @@ class FSM_LINEAR(object):
             self.save_distributions('final',QN_final,Z_final)
         
         
-        if not self.flow:
+        if not self.flow and not self.turn_flow_off:
             if not postprocess:
                 #get OTF correlator results
                 C_array = d_C.copy_to_host()

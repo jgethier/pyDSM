@@ -29,4 +29,5 @@ FLAG ARGUMENTS:
 -c [otf] - force simulation to use on-the-fly (otf) correlator, but correlation errors will not be reported
 -o [output_dir] - specify output directory
 --fit - a flag to turn on G(t) fitting after simulation is done. 
+--distr - a flag to save initial and final Q, Lpp, and Z distributions to file.
 ```

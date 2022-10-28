@@ -1,24 +1,23 @@
 import numpy as np
 import math
-import core.random_gen as rng
+import random as rng
 
 class ensemble_chains(object):
 
-    def __init__(self, config, seed):
+    def __init__(self, config):
 
         self.beta = config['beta']
         self.CD_flag = config['CD_flag']
         self.QN = np.zeros(shape=(config['Nchains'],config['NK'],4),dtype=float)
         self.tau_CD = np.zeros(shape=(config['Nchains'],config['NK']),dtype=float)
         self.Z = np.zeros(shape=config['Nchains'],dtype=float)
-        rng.initialize_generator(seed)
 
         return
 
     
     def z_dist(self,tNk):
         
-        p = rng.genrand_real3()  
+        p = rng.uniform(0.0,1.0)
         y = p/(1+self.beta)*math.pow(1+(1/self.beta),tNk)
         z = 1
         sum1 = 0.0
@@ -61,12 +60,12 @@ class ensemble_chains(object):
         else:
             A = tNk-1
             for i in range(ztmp,1,-1):
-                p = rng.genrand_real3()
-                Ntmp = 1
+                p = rng.uniform(0.0,1.0)
+                Ntmp = 0
                 sumres = 0.0
-                while (p>=sumres) and ((Ntmp) != (A-i+2)):
-                    sumres += self.ratio(A, Ntmp, i)
+                while (p>=sumres) and ((Ntmp+1) != (A-i+2)):
                     Ntmp+=1
+                    sumres += self.ratio(A, Ntmp, i)
                 tN[i-1] = Ntmp
                 A = A - Ntmp
             tN[0] = A + 1
@@ -82,9 +81,9 @@ class ensemble_chains(object):
         if tz>2: #dangling ends not part of distribution
             rng.use_last=False
             for j in range(1,tz-1):
-                Qx[j] = rng.gauss_distr()*np.sqrt(float(Ntmp[j])/3.0)
-                Qy[j] = rng.gauss_distr()*np.sqrt(float(Ntmp[j])/3.0)
-                Qz[j] = rng.gauss_distr()*np.sqrt(float(Ntmp[j])/3.0)
+                Qx[j] = rng.normalvariate(0.0,1.0)*np.sqrt(float(Ntmp[j])/3.0)
+                Qy[j] = rng.normalvariate(0.0,1.0)*np.sqrt(float(Ntmp[j])/3.0)
+                Qz[j] = rng.normalvariate(0.0,1.0)*np.sqrt(float(Ntmp[j])/3.0)
 
         return Qx,Qy,Qz
 
@@ -104,7 +103,6 @@ class ensemble_chains(object):
         tN = self.N_dist(tz,Nk)
         Qx,Qy,Qz = self.Q_dist(tz, tN)
 
-        #tmpQN = [[0,0,0,0] for j in range(0,z_max)]
         for k in range(0,tz-1):
             self.QN[chainIdx,k] = [Qx[k], Qy[k], Qz[k], tN[k]]
             if self.tau_CD[chainIdx,k]==0:
@@ -115,11 +113,6 @@ class ensemble_chains(object):
         if dangling_begin:
             self.QN[chainIdx,0] = [0.0,0.0,0.0,tN[0]]
             self.QN[chainIdx,tz-1] = [0.0,0.0,0.0,tN[tz-1]]
-
-        #self.QN = np.append(self.QN,tmpQN)
-        #self.Z = np.append(self.Z,tz)
-        #self.tau_CD = np.array(np.append(self.tau_CD,tau_CD))
-
 
         return
 

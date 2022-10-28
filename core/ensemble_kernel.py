@@ -1,37 +1,6 @@
 import math
 from numba import cuda, float32
 
-@cuda.reduce
-def sum_reduce(a, b):
-    return a + b
-
-@cuda.jit
-def reduce_flag_array(D,bool_val):
-
-    #sbuf = cuda.shared.array(shape=0,dtype=float32)
-
-    ty = cuda.threadIdx.y
-    bh = cuda.blockDim.y
-    index_i = ty
-
-    L = len(D)
-    su = 0
-    while index_i < L:
-        su += D[index_i]
-        index_i +=bh
-
-    if cuda.blockIdx.x*cuda.blockDim.x + cuda.threadIdx.x == 0:
-        bool_val[0] = (int(su)==int(D.shape[0]))
-        # print(bool_val)
-    # if su == D.shape[0]:
-    #     bool_val = True
-    # else:
-    #     bool_val = False
-
-    # sbuf[ty] = su
-    # cuda.syncthreads()
-
-    return 
 
 @cuda.jit(device=True)
 def apply_flow(Q,dt,kappa):
@@ -61,21 +30,19 @@ def reset_chain_flag(reach_flag):
     return 
 
 @cuda.jit
-def calc_EQ_afterflow(Z,QN,NK,track_f_NK):
+def calc_EQ_afterflow(Z,QN,track_NK):
 
     i = cuda.blockIdx.x*cuda.blockDim.x + cuda.threadIdx.x
 
     if i>= QN.shape[0]:
         return 
 
-    total_NK = NK[0]
-
     count_NK = 0
     count_NK += int(QN[i,0,3])
     count_NK += int(QN[i,int(Z[i])-1,3])
     
-    track_f_NK[i] = count_NK/total_NK
-
+    track_NK[i] = count_NK
+    
     return 
 
 
@@ -200,44 +167,6 @@ def calc_strand_prob(Z,QN,flow,tdt,kappa,tau_CD,shift_probs,CD_flag,CD_create_pr
         if CD_flag[0]==1:
                 shift_probs[i, j, 2] = tcd
                 shift_probs[i, j, 3] = CD_create_prefact[0]*(QN_i[3]-1.0)
-
-    #####DANGLING STRANDS/CHAIN ENDS#########
-
-    if j == 0:
-        QNfirst = QN[i,0]
-        QNlast = QN[i,tz-1]
-
-        if tz == 1:
-            shift_probs[i,tz-1,1] = (1.0 / (beta[0]*NK[0]))           
-            shift_probs[i,tz,1] = (1.0 / (beta[0]*NK[0]))
-
-        else:
-            if QNfirst[3] == 1.0: #destruction by SD at the beginning
-                QNfirst_n = QN[i,1]
-                if tz == 2:
-                    c = QNfirst_n[3] + 0.25
-                else:
-                    c = QNfirst_n[3] * 0.5
-
-                shift_probs[i,tz,0] = (1.0 / (c+0.75))
-
-            else: #creation by SD at the beginning
-                shift_probs[i,tz,1] = (2.0 / (beta[0] * (QNfirst[3]+0.5)))
-
-            if QNlast[3] == 1.0: #destruction by SD at the end
-
-                QNlast_p = QN[i,tz-2]
-                if tz == 2:
-                    c = QNlast_p[3] + 0.25
-                else:
-                    c = QNlast_p[3] * 0.5
-                shift_probs[i,tz-1,0] = (1.0 / (c+0.75))
-                
-            else: #creation by SD at the end
-                shift_probs[i,tz-1,1] = (2.0 / (beta[0] * (QNlast[3]+0.5) ))
-
-        if CD_flag[0]==1:
-            shift_probs[i,tz-1,3] = CD_create_prefact[0]*(QNlast[3]-1.0)   
 
     return
 
@@ -573,7 +502,6 @@ def time_control_kernel(Z,QN,QN_first,NK,chain_time,tdt,result,calc_type,flow,fl
                 result[i,arr_index,2] = chain_com[2] + QN_1[2]
                 if not postprocess:
                     result[i,arr_index,3] = 1.0
-                
         
         write_time[i]+=1
     

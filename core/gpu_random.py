@@ -1,38 +1,7 @@
 from numba import cuda
 import math
 
-from numba.cuda.random import create_xoroshiro128p_states, xoroshiro128p_uniform_float64, xoroshiro128p_normal_float64
-
-
-# def gpu_uniform_rand(seed, nchains, count, uniform_rand, refill=False):
-
-#     threadsperblock = 256
-#     blockspergrid = (nchains + threadsperblock - 1) // threadsperblock
-
-#     rng_states = create_xoroshiro128p_states(threadsperblock*blockspergrid, seed=seed)
-
-#     if refill:
-#         refill_uniform_rand[blockspergrid,threadsperblock](rng_states, nchains, count, uniform_rand)
-#     else:
-#         fill_uniform_rand[blockspergrid,threadsperblock](rng_states, nchains, count, uniform_rand)
-
-#     return
-
-
-# def gpu_tauCD_gauss_rand(seed, discrete, nchains, count, CDflag, SDtoggle, gauss_rand, pcd_array, pcd_table_eq, pcd_table_cr, pcd_table_tau, refill=False):
-
-#     threadsperblock = 256
-#     blockspergrid = (nchains + threadsperblock - 1) // threadsperblock
-
-#     rng_states = create_xoroshiro128p_states(threadsperblock * blockspergrid, seed=seed)
-
-#     if refill:
-#         refill_gauss_rand_tauCD[blockspergrid,threadsperblock](rng_states, discrete, nchains, count, SDtoggle, CDflag, gauss_rand, pcd_array, pcd_table_eq, pcd_table_cr, pcd_table_tau)
-
-#     else:
-#         fill_gauss_rand_tauCD[blockspergrid,threadsperblock](rng_states, discrete, nchains, count, SDtoggle, CDflag, gauss_rand, pcd_array, pcd_table_eq, pcd_table_cr, pcd_table_tau)
-
-#     return
+from numba.cuda.random import xoroshiro128p_uniform_float64, xoroshiro128p_normal_float64
 
 
 @cuda.jit
@@ -103,10 +72,8 @@ def fill_gauss_rand_tauCD(rng_states, discrete, nchains, count, SDtoggle, CD_fla
             gauss_rand[i,j,3] = 0.0
             gauss_rand[i,j,3] = 0.0
 
-        gauss_rand[i,j,0] = xoroshiro128p_normal_float64(rng_states, i)
-        gauss_rand[i,j,1] = xoroshiro128p_normal_float64(rng_states, i)
-        gauss_rand[i,j,2] = xoroshiro128p_normal_float64(rng_states, i)
-
+        for k in range(0,3):
+            gauss_rand[i,j,k] = xoroshiro128p_normal_float64(rng_states, i)
 
     return
 
@@ -141,12 +108,10 @@ def refill_gauss_rand_tauCD(rng_states, discrete, nchains, count, SDtoggle, CD_f
             gauss_rand[i,j,3] = 0.0
             gauss_rand[i,j,3] = 0.0
 
-        gauss_rand[i,j,0] = xoroshiro128p_normal_float64(rng_states, i)
-        gauss_rand[i,j,1] = xoroshiro128p_normal_float64(rng_states, i)
-        gauss_rand[i,j,2] = xoroshiro128p_normal_float64(rng_states, i)
+        for k in range(0,3):
+            gauss_rand[i,j,k] = xoroshiro128p_normal_float64(rng_states, i)
 
     count[i] = 0.0
-
 
     return
 

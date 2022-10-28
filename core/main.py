@@ -1,5 +1,3 @@
-from concurrent.futures import thread
-from genericpath import isfile
 import os
 import sys
 import time
@@ -11,6 +9,7 @@ from alive_progress import alive_bar
 import yaml
 import math
 import pickle
+import random as rng
 from core.chain import ensemble_chains
 from core.pcd_tau import p_cd, p_cd_linear
 import core.ensemble_kernel as ensemble_kernel
@@ -67,6 +66,8 @@ class FSM_LINEAR(object):
         print("Simulation ID: %d"%(sim_ID))
         print("Using %d*Nchains as a seed for the random number generator."%(sim_ID))
         
+        rng.seed(self.seed)
+
         return
 
 
@@ -116,7 +117,7 @@ class FSM_LINEAR(object):
         
         #set time array depending on num_sync
         time_resolution = self.input_data['tau_K']
-        time_array = np.arange(self.old_sync_time,time+0.5,time_resolution)
+        time_array = np.arange(self.old_sync_time,time+time_resolution/2.0,time_resolution)
         time_array = np.reshape(time_array[time_index:],(1,len(time_array[time_index:])))
 
         combined = np.hstack((time_array.T, np.array([[np.mean(Z_array)]]).T, np.array([[np.std(Z_array)**2]]).T, np.array([[np.mean(fraction_NK)]]).T, np.array([[np.std(fraction_NK)**2]]).T))
@@ -157,7 +158,7 @@ class FSM_LINEAR(object):
         
         #set time array depending on num_sync
         time_resolution = self.input_data['tau_K']
-        time_array = np.arange(self.old_sync_time,time+0.5,time_resolution)
+        time_array = np.arange(self.old_sync_time,time+time_resolution/2.0,time_resolution)
         time_array = np.reshape(time_array[time_index:],(1,len(time_array[time_index:])))
         len_array = len(time_array[0])+1
         
@@ -217,7 +218,7 @@ class FSM_LINEAR(object):
         
         #set time array depending on num_sync
         time_resolution = self.input_data['tau_K']
-        time_array = np.arange(self.old_sync_time,time+0.5,time_resolution)
+        time_array = np.arange(self.old_sync_time,time+time_resolution/2.0,time_resolution)
         time_array = np.reshape(time_array[time_index:],(1,len(time_array[time_index:])))
         len_array = len(time_array[0])+1
         
@@ -372,7 +373,7 @@ class FSM_LINEAR(object):
             
         #generate initial chain conformations on host CPU
         print('Generating initial chain conformations on host...',end="",flush=True)
-        chain = ensemble_chains(self.input_data,self.seed)
+        chain = ensemble_chains(self.input_data)
         
         #initialize chains
         for m in range(0,self.input_data['Nchains']):
@@ -388,6 +389,10 @@ class FSM_LINEAR(object):
             self.flow = True
             calc_type = 1
             self.fit = False 
+            if self.input_data['flow_time']>0 and self.input_data['flow_time']<self.input_data['sim_time']:
+                self.turn_flow_off = True
+            else:
+                self.turn_flow_off = False
         else:
             self.flow = False
             self.turn_flow_off = False
@@ -555,20 +560,18 @@ class FSM_LINEAR(object):
         #initialize some time constants used for simulation
         #sync time is the time for a chain to sync with other chains and write data to file
         if self.flow: #if flow, set sync time to tau_K
-            if self.input_data['flow_time']!=0 and self.input_data['flow_time']<self.input_data['sim_time']:
-                self.turn_flow_off = True
             max_sync_time = self.input_data['tau_K']
             res = np.zeros(shape=(chain.QN.shape[0],1,6),dtype=float) #initialize result array (stress or CoM)
         else:
             if postprocess:
-                max_sync_time = 100 #arbitrary, just setting every chain to sync at t = 100 (TODO: determine how efficient this is)
+                max_sync_time = 250*self.input_data['tau_K'] #setting sync time to t = 250*tau_K
                 #set max sync time to simulation time if simulation time is less than sync time
                 if max_sync_time > self.input_data['sim_time']:
                     max_sync_time = self.input_data['sim_time']
                 if calc_type == 1: #result array (G(t) or MSD) dimensions are set based on EQ_calc
-                    res = np.zeros(shape=(chain.QN.shape[0],max_sync_time+1,1),dtype=float) #initialize result array (stress or CoM)
+                    res = np.zeros(shape=(chain.QN.shape[0],251,1),dtype=float) #initialize result array (stress or CoM) to always hold 250 stress values per chain
                 elif calc_type == 2:
-                    res = np.zeros(shape=(chain.QN.shape[0],max_sync_time+1,3),dtype=float) 
+                    res = np.zeros(shape=(chain.QN.shape[0],251,3),dtype=float) 
             else:
                 max_sync_time = self.input_data['sim_time']
                 res = np.zeros(shape=(chain.QN.shape[0],250,4),dtype=float) 
@@ -605,14 +608,12 @@ class FSM_LINEAR(object):
                     
                     #if simulating shear flow and flow time is less than total simulation time, turn off flow when flow time is reached
                     if self.flow and self.turn_flow_off:
-                        if next_sync_time>self.input_data['flow_time']:
+                        if next_sync_time>self.input_data['flow_time'] and self.flow:
                             print('Turning off flow, equilibrium variables will now be tracked.')
                             self.flow=False
                             d_flow = cuda.to_device([self.flow])
-                            track_Z = np.zeros(shape=self.input_data['Nchains'],dtype=int) 
-                            track_f_NK = np.zeros(shape=self.input_data['Nchains'],dtype=float)
-                            d_track_Z = cuda.to_device(track_Z)
-                            d_track_f_NK = cuda.to_device(track_f_NK)
+                            track_NK = np.zeros(shape=(self.input_data['Nchains']),dtype=int)
+                            d_track_NK = cuda.to_device(track_NK)
                     
                     #initialize flags for chain sync (if chain times reach the sync time, flag goes up)
                     reach_flag_all = False
@@ -625,6 +626,9 @@ class FSM_LINEAR(object):
                         ensemble_kernel.calc_strand_prob[dimGrid, dimBlock](d_Z,d_QN,d_flow,d_tdt,d_kappa,d_tau_CD,d_shift_probs,
                                                                               d_CDflag,d_CD_create_prefact,d_beta,d_NK)
                         
+                        #calculate probabilities for chain ends
+                        ensemble_kernel.calc_chainends_prob[blockspergrid, threadsperblock](d_Z, d_QN, d_shift_probs, d_CDflag, d_CD_create_prefact, d_beta, d_NK)
+
                         #control chain time and stress calculation
                         ensemble_kernel.time_control_kernel[blockspergrid, threadsperblock](d_Z,d_QN,d_QN_first,d_NK,d_chain_time,
                                                                                                     d_tdt,d_res,d_calc_type,d_flow,d_flow_off,d_reach_flag,next_sync_time,
@@ -683,16 +687,17 @@ class FSM_LINEAR(object):
                             self.step_count = 0
                         
                         #check if chains have reached sim_time or time_sync
-                        if self.flow:
+                        if self.flow or self.turn_flow_off:
                             reach_flag_host = d_reach_flag.copy_to_host()
                             sum_reach_flags = int(np.sum(reach_flag_host)) 
-                        elif (not self.flow) and (self.step_count%250==0):
+                        elif (not self.flow) and (not self.turn_flow_off) and (self.step_count%250==0):
                             reach_flag_host = d_reach_flag.copy_to_host()
                             sum_reach_flags = int(np.sum(reach_flag_host))
 
                         #if all reach_flags are 1, sum should equal number of chains and all chains are synced
                         reach_flag_all = (sum_reach_flags == int(self.input_data['Nchains'])) 
-
+                    
+                    
                     if postprocess:
                     #write result of all chains to file if postprocess correlator is used
                         if self.flow: #if flow, calculate flow stress tensor for each chain
@@ -700,9 +705,9 @@ class FSM_LINEAR(object):
 
                         elif not self.flow and self.turn_flow_off:
                             ensemble_kernel.calc_flow_stress[blockspergrid,threadsperblock](d_Z,d_QN,d_res)
-                            ensemble_kernel.calc_EQ_afterflow[blockspergrid,threadsperblock](d_Z,d_QN,d_NK,d_track_f_NK)
+                            ensemble_kernel.calc_EQ_afterflow[blockspergrid,threadsperblock](d_Z,d_QN,d_track_NK)
                             Z_array = d_Z.copy_to_host()
-                            fraction_NK = d_track_f_NK.copy_to_host()
+                            fraction_NK = d_track_NK.copy_to_host()
                             self.write_afterflow_stats(x_sync,next_sync_time,Z_array,fraction_NK)
 
                         res_host = d_res.copy_to_host()

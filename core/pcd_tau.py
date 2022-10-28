@@ -1,5 +1,5 @@
 import numpy as np
-import core.random_gen as rng
+import random as rng
 import math
 
 class p_cd(object):
@@ -8,7 +8,6 @@ class p_cd(object):
         self.nmodes = nmodes
         self.g = gArr
         self.tau = tauArr
-
 
         total = 0
         for j in range(0,nmodes):
@@ -23,7 +22,8 @@ class p_cd(object):
 
 
     def tau_CD_f_t(self):
-        p = rng.genrand_real3()
+        
+        p = rng.uniform(0.0,1.0)
         total = 0
         for i in range(0,self.nmodes+1):
             if total>p:
@@ -83,7 +83,7 @@ class p_cd_linear(object):
 
     def tau_CD_f_t(self):
 
-        p = rng.genrand_real3()
+        p = rng.uniform(0.0,1.0)
         if p < (1.0 - self.g):
             return math.pow(p * self.tau_alpha / self.At + math.pow(self.tau_0, self.alpha), 1.0 / self.alpha)
         else:

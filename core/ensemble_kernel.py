@@ -1,7 +1,6 @@
 import math
 from numba import cuda, float32
 
-
 @cuda.jit(device=True)
 def apply_flow(Q,dt,kappa):
     '''
@@ -30,21 +29,54 @@ def reset_chain_flag(reach_flag):
     return 
 
 @cuda.jit
-def calc_EQ_afterflow(Z,QN,track_NK):
+def reset_chain_time(chain_time,write_time,flow_time):
 
-    i = cuda.blockIdx.x*cuda.blockDim.x + cuda.threadIdx.x
-
-    if i>= QN.shape[0]:
+    i = cuda.blockIdx.x*cuda.blockDim.x + cuda.threadIdx.x #chain index
+    
+    if i >= chain_time.shape[0]:
         return 
 
-    count_NK = 0
-    count_NK += int(QN[i,0,3])
-    count_NK += int(QN[i,int(Z[i])-1,3])
-    
-    track_NK[i] = count_NK
-    
-    return 
+    chain_time[i] -= flow_time
+    write_time[i] = 0
 
+    return
+
+@cuda.jit
+def calc_new_Q_fraction(found_shift,result,chain_time,max_sync_time,time_resolution,write_time):
+
+    i = cuda.blockIdx.x*cuda.blockDim.x + cuda.threadIdx.x #chain index
+    
+    if i >= found_shift.shape[0]:
+        return
+    
+    # tz = int(Z[i])
+    # tz_flow = int(Z_flow[i])
+
+    new_QN = 0
+    if (found_shift[i] == 3) or (found_shift[i] == 6) or (found_shift[i] == 4):
+        new_QN += 1
+    
+    # new_QN = 0
+    # for j in range(1,tz-1):
+    #     for k in range(1,tz_flow-1):
+    #         if (QN[i,j,0] == QN_flow[i,k,0]) and (QN[i,j,1] == QN_flow[i,k,1]) and (QN[i,j,2] == QN_flow[i,k,2]):
+    #             pass
+    #         else:
+    #             new_QN+=1
+    #         if (QN_flow[i,k,0]==(QN[i,j,0]+QN[i,j+1,0])):
+    #             new_QN-=1
+    #             QN_flow[i,k,0] = QN[i,j,0]
+    #             QN_flow[i,k,1] = QN[i,j,1]
+    #             QN_flow[i,k,2] = QN[i,j,2]
+
+    if int((chain_time[i]%max_sync_time)/time_resolution[0])==0 and write_time[i] != 0:
+        arr_index = int(max_sync_time/time_resolution[0])
+    else:
+        arr_index = int((chain_time[i]%max_sync_time)/time_resolution[0])
+
+    result[i,arr_index,7] = new_QN
+
+    return   
 
 @cuda.jit
 def calc_flow_stress(Z,QN,stress):
@@ -75,6 +107,7 @@ def calc_flow_stress(Z,QN,stress):
     stress[i,0,3] = stress_xy
     stress[i,0,4] = stress_yz
     stress[i,0,5] = stress_xz
+    stress[i,0,6] = Z[i]
     
     return
 
@@ -503,6 +536,33 @@ def time_control_kernel(Z,QN,QN_first,NK,chain_time,tdt,result,calc_type,flow,fl
                 if not postprocess:
                     result[i,arr_index,3] = 1.0
         
+        if not bool(flow[0]) and bool(flow_off[0]): #track equilibrium variables after cessation of flow
+            
+            tz = int(Z[i])
+
+            if int((chain_time[i]%max_sync_time)/time_resolution[0])==0 and write_time[i] != 0:
+                arr_index = int(max_sync_time/time_resolution[0])
+            else:
+                arr_index = int((chain_time[i]%max_sync_time)/time_resolution[0])
+
+            
+            stress_xx = stress_yy = stress_zz = stress_xy = stress_yz = stress_xz = 0.0
+            for j in range(0,int(Z[i])):
+                stress_xx -= (3.0*QN[i,j,0]*QN[i,j,0] / QN[i,j,3]) #tau_xx
+                stress_yy -= (3.0*QN[i,j,1]*QN[i,j,1] / QN[i,j,3]) #tau_yy
+                stress_zz -= (3.0*QN[i,j,2]*QN[i,j,2] / QN[i,j,3]) #tau_zz
+                stress_xy -= (3.0*QN[i,j,0]*QN[i,j,1] / QN[i,j,3]) #tau_xy
+                stress_yz -= (3.0*QN[i,j,1]*QN[i,j,2] / QN[i,j,3]) #tau_yz
+                stress_xz -= (3.0*QN[i,j,0]*QN[i,j,2] / QN[i,j,3]) #tau_xz
+            
+            result[i,arr_index,0] = stress_xx
+            result[i,arr_index,1] = stress_yy
+            result[i,arr_index,2] = stress_zz
+            result[i,arr_index,3] = stress_xy
+            result[i,arr_index,4] = stress_yz
+            result[i,arr_index,5] = stress_xz
+            result[i,arr_index,6] = tz
+
         write_time[i]+=1
     
     return

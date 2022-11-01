@@ -605,6 +605,12 @@ class FSM_LINEAR(object):
                             res = np.zeros(shape=(chain.QN.shape[0],251,8),dtype=float)
                             d_res = cuda.to_device(res)
                             ensemble_kernel.reset_chain_time[blockspergrid, threadsperblock](d_chain_time,d_write_time,self.input_data['flow_time'])
+                            # new_Q = np.zeros(shape=chain.QN.shape[0],dtype=int)
+                            # d_new_Q = cuda.to_device(new_Q)
+                            new_Z = np.zeros(shape=(chain.QN.shape[0],chain.QN.shape[1]),dtype=int)
+                            d_new_Z = cuda.to_device(new_Z)
+                            temp_Z = np.zeros(shape=(chain.QN.shape[0],chain.QN.shape[1]+1),dtype=int)
+                            d_temp_Z = cuda.to_device(temp_Z)
                     
                     if not self.flow and self.turn_flow_off:
                         if x_sync==num_time_syncs:
@@ -639,7 +645,12 @@ class FSM_LINEAR(object):
                         # ensemble_kernel.choose_kernel[blockspergrid, threadsperblock](d_Z, d_shift_probs, d_sum_W_sorted, d_uniform_rand, d_rand_used, 
                         #                                                                     d_found_index, d_found_shift,d_add_rand, d_CDflag, d_NK)
 
-                        
+                        #if flow is turned off, track fraction of new entanglements
+                        if not self.flow and self.turn_flow_off:
+                            ensemble_kernel.calc_new_Q_fraction[blockspergrid,threadsperblock](d_Z,d_new_Z,d_temp_Z,d_found_shift,d_found_index,d_res,d_chain_time,
+                                                                                               max_sync_time,d_time_resolution,d_write_time)
+
+                            
                         #apply jump move for each chain and update time of chain
                         ensemble_kernel.apply_step_kernel[blockspergrid,threadsperblock](d_Z, d_QN, d_QN_first, d_QN_create_SDCD,
                                                                                             d_chain_time,d_time_compensation,d_sum_W_sorted,
@@ -648,9 +659,7 @@ class FSM_LINEAR(object):
                                                                                             d_rand_used, d_add_rand, d_tau_CD_used_SD,
                                                                                             d_tau_CD_used_CD,d_tau_CD_gauss_rand_SD,
                                                                                             d_tau_CD_gauss_rand_CD)
-                        #if flow is turned off, track fraction of new entanglements
-                        if not self.flow and self.turn_flow_off:
-                            ensemble_kernel.calc_new_Q_fraction[blockspergrid,threadsperblock](d_found_shift,d_res,d_chain_time,max_sync_time,d_time_resolution,d_write_time)
+                        
 
                         #update step counter for arrays and array positions
                         self.step_count+=1

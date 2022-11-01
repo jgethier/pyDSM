@@ -63,6 +63,7 @@ def calc_new_Q_fraction(Z,new_Z,temp_Z,found_shift,found_index,result,chain_time
             temp_Z[i,j] = int(new_Z[i,j-1])
 
     if jumpType == 4:
+        total_Z+=1
         if jumpIdx == 0:
             #shift other entanglements
             for entIdx in range(jumpIdx+1,tz+1):
@@ -74,6 +75,7 @@ def calc_new_Q_fraction(Z,new_Z,temp_Z,found_shift,found_index,result,chain_time
         new_Z[i,jumpIdx] = 1
 
     if jumpType == 6:
+        total_Z+=1
         for entIdx in range(jumpIdx+1,tz+1):
             new_Z[i,entIdx] = temp_Z[i,entIdx]
         new_Z[i,jumpIdx] = 1

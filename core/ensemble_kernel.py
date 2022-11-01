@@ -109,7 +109,7 @@ def calc_new_Q_fraction(Z,new_Z,temp_Z,found_shift,found_index,result,chain_time
     else:
         arr_index = int((chain_time[i]%max_sync_time)/time_resolution[0])
 
-    result[i,arr_index,7] = count_new_Z/total_Z
+    result[i,arr_index,7] = count_new_Z/(total_Z-2) # normalize by number of entanglements (Z-2)
 
     return   
 

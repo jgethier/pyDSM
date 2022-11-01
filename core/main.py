@@ -157,7 +157,7 @@ class FSM_LINEAR(object):
         if num_sync == 1:
             if self.flow or self.turn_flow_off:
                 with open(self.stress_output,'w') as f:
-                    f.write('time, tau_xx, tau_yy, tau_zz, tau_xy, tau_yz, tau_xz, Z, new_Q, stderr_xx, stderr_yy, stderr_zz, stderr_xy, stderr_yz, stderr_xz, stderr_Z, stderr_newQ\n')
+                    f.write('time, tau_xx, tau_yy, tau_zz, tau_xy, tau_yz, tau_xz, Z, f_newQ, stderr_xx, stderr_yy, stderr_zz, stderr_xy, stderr_yz, stderr_xz, stderr_Z, stderr_f_newQ\n')
                     np.savetxt(f, combined, delimiter=',', fmt='%.8f')
             else:
                 with open(self.stress_output, "wb") as f:

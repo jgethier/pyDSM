@@ -42,39 +42,35 @@ def reset_chain_time(chain_time,write_time,flow_time):
     return
 
 @cuda.jit
-def calc_new_Q_fraction(Z,new_Q,temp_Q,found_shift,found_index,result,chain_time,max_sync_time,time_resolution,write_time):
+def track_newQ(Z,new_Q,temp_Q,found_shift,found_index,reach_flag):
 
     i = cuda.blockIdx.x*cuda.blockDim.x + cuda.threadIdx.x #chain index
     
     if i >= Z.shape[0]:
         return
+
+    if reach_flag[i]!=0:
+        return
     
     jumpIdx = int(found_index[i])
     jumpType = int(found_shift[i])
     tz = int(Z[i])
-
-    total_Z = tz
     
     if jumpType == 4 or jumpType == 6:
-        for j in range(1,tz+1):
+        for j in range(1,tz):
             temp_Q[i,j] = new_Q[i,j-1]
-    
-    cuda.syncthreads()
 
     if jumpType == 4 or jumpType == 6:
-        total_Z+=1
         #shift other entanglements
-        for entIdx in range(jumpIdx+1,tz+1):
+        for entIdx in range(jumpIdx+1,tz):
             new_Q[i,entIdx] = temp_Q[i,entIdx]
         new_Q[i,jumpIdx] = 1
     
-    if jumpType == 3:
-        total_Z += 1
+    elif jumpType == 3:
         new_Q[i,jumpIdx+1] = 0
         new_Q[i,jumpIdx] = 1
 
-    if jumpType == 2 or jumpType == 5:
-        total_Z -= 1
+    elif jumpType == 2 or jumpType == 5:
         if jumpIdx < tz-2:
             new_Q[i,jumpIdx] = new_Q[i,jumpIdx+1]
             #shift all strands -1 in array for deleted strand
@@ -83,21 +79,8 @@ def calc_new_Q_fraction(Z,new_Q,temp_Q,found_shift,found_index,result,chain_time
         elif jumpIdx == tz-2:
             new_Q[i,jumpIdx] = 0
             new_Q[i,jumpIdx+1] = 0
-
-    cuda.syncthreads()
-    count_new_Q = 0
-    for j in range(0,total_Z-1):
-        if new_Q[i,j] == 1:
-            count_new_Q+=1
-
-    if int((chain_time[i]%max_sync_time)/time_resolution[0])==0 and write_time[i] != 0:
-        arr_index = int(max_sync_time/time_resolution[0])
     else:
-        arr_index = int((chain_time[i]%max_sync_time)/time_resolution[0])
-
-    result[i,arr_index,7] = count_new_Q/(total_Z-1) # normalize by number of entanglements (Z-1)
-
-    return   
+        return   
 
 @cuda.jit
 def calc_flow_stress(Z,QN,stress):
@@ -480,7 +463,7 @@ def choose_step_kernel(Z,shift_probs,sum_W_sorted,uniform_rand,rand_used,found_i
 
 
 @cuda.jit
-def time_control_kernel(Z,QN,QN_first,NK,chain_time,tdt,result,calc_type,flow,flow_off,reach_flag,next_sync_time,max_sync_time,write_time,time_resolution,result_index,postprocess):
+def time_control_kernel(Z,QN,new_Q,QN_first,NK,chain_time,tdt,result,calc_type,flow,flow_off,reach_flag,next_sync_time,max_sync_time,write_time,time_resolution,result_index,postprocess):
     
     
     i = cuda.blockIdx.x*cuda.blockDim.x + cuda.threadIdx.x #chain index
@@ -568,6 +551,7 @@ def time_control_kernel(Z,QN,QN_first,NK,chain_time,tdt,result,calc_type,flow,fl
 
             
             stress_xx = stress_yy = stress_zz = stress_xy = stress_yz = stress_xz = 0.0
+            count_new_Q = 0
             for j in range(0,int(Z[i])):
                 stress_xx -= (3.0*QN[i,j,0]*QN[i,j,0] / QN[i,j,3]) #tau_xx
                 stress_yy -= (3.0*QN[i,j,1]*QN[i,j,1] / QN[i,j,3]) #tau_yy
@@ -575,6 +559,9 @@ def time_control_kernel(Z,QN,QN_first,NK,chain_time,tdt,result,calc_type,flow,fl
                 stress_xy -= (3.0*QN[i,j,0]*QN[i,j,1] / QN[i,j,3]) #tau_xy
                 stress_yz -= (3.0*QN[i,j,1]*QN[i,j,2] / QN[i,j,3]) #tau_yz
                 stress_xz -= (3.0*QN[i,j,0]*QN[i,j,2] / QN[i,j,3]) #tau_xz
+                if j < int(Z[i]) - 1:
+                    if new_Q[i,j] == 1:
+                        count_new_Q+=1
             
             result[i,arr_index,0] = stress_xx
             result[i,arr_index,1] = stress_yy
@@ -583,6 +570,8 @@ def time_control_kernel(Z,QN,QN_first,NK,chain_time,tdt,result,calc_type,flow,fl
             result[i,arr_index,4] = stress_yz
             result[i,arr_index,5] = stress_xz
             result[i,arr_index,6] = tz
+            result[i,arr_index,7] = count_new_Q/(tz-1)
+            
 
         write_time[i]+=1
     

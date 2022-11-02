@@ -373,11 +373,17 @@ class FSM_LINEAR(object):
             self.fit = False 
             if self.input_data['flow_time']>0 and self.input_data['flow_time']<self.input_data['sim_time']:
                 self.turn_flow_off = True
+                new_Q = np.zeros(shape=(chain.QN.shape[0],chain.QN.shape[1]),dtype=int)
+                d_new_Q = cuda.to_device(new_Q)
             else:
                 self.turn_flow_off = False
+                new_Q = np.array([[]])
+                d_new_Q = cuda.to_device(new_Q)
         else:
             self.flow = False
             self.turn_flow_off = False
+            new_Q = np.array([[]])
+            d_new_Q = cuda.to_device(new_Q)
             #determine system size for post-processing
             postprocess = True
             d_kappa = cuda.to_device(np.array(self.input_data['kappa'],dtype=float))
@@ -479,9 +485,9 @@ class FSM_LINEAR(object):
         reach_flag = np.zeros(shape=self.input_data['Nchains'],dtype=int)
                 
         #initialize arrays for which chains create a slip link from sliding and/or constraint dynamics
-        QN_create_SDCD = np.zeros(shape=(chain.QN.shape[0],chain.QN.shape[1]+1,4))
-        new_t_cr = np.zeros(shape=(chain.QN.shape[0],chain.QN.shape[1]+1))
-        new_tau_CD = np.zeros(shape=(chain.QN.shape[0],chain.QN.shape[1]+1))
+        QN_create_SDCD = np.zeros(shape=(chain.QN.shape[0],chain.QN.shape[1]+1,4),dtype=float)
+        new_t_cr = np.zeros(shape=(chain.QN.shape[0],chain.QN.shape[1]+1),dtype=float)
+        new_tau_CD = np.zeros(shape=(chain.QN.shape[0],chain.QN.shape[1]+1),dtype=float)
 
         #correlator parameters for both block transformation or on-the-fly
         p = correlation.p
@@ -574,7 +580,6 @@ class FSM_LINEAR(object):
         else:
             num_time_syncs = num_time_syncs_flow + num_time_syncs_afterflow
         
-        
         #SIMULATION STARTS -------------------------------------------------------------------------------------------------------------------------------
         
         #timer start
@@ -605,8 +610,6 @@ class FSM_LINEAR(object):
                             res = np.zeros(shape=(chain.QN.shape[0],251,8),dtype=float)
                             d_res = cuda.to_device(res)
                             ensemble_kernel.reset_chain_time[blockspergrid, threadsperblock](d_chain_time,d_write_time,self.input_data['flow_time'])
-                            new_Q = np.zeros(shape=(chain.QN.shape[0],chain.QN.shape[1]),dtype=int)
-                            d_new_Q = cuda.to_device(new_Q)
                             temp_Q = np.zeros(shape=(chain.QN.shape[0],chain.QN.shape[1]+1),dtype=int)
                             d_temp_Q = cuda.to_device(temp_Q)
                     
@@ -632,7 +635,7 @@ class FSM_LINEAR(object):
                         ensemble_kernel.calc_chainends_prob[blockspergrid, threadsperblock](d_Z, d_QN, d_shift_probs, d_CDflag, d_CD_create_prefact, d_beta, d_NK)
 
                         #control chain time and stress calculation
-                        ensemble_kernel.time_control_kernel[blockspergrid, threadsperblock](d_Z,d_QN,d_QN_first,d_NK,d_chain_time,
+                        ensemble_kernel.time_control_kernel[blockspergrid, threadsperblock](d_Z,d_QN,d_new_Q,d_QN_first,d_NK,d_chain_time,
                                                                                             d_tdt,d_res,d_calc_type,d_flow,d_flow_off,d_reach_flag,next_sync_time,
                                                                                             max_sync_time,d_write_time,d_time_resolution,self.step_count%250,postprocess)
                         
@@ -645,8 +648,7 @@ class FSM_LINEAR(object):
 
                         #if flow is turned off, track fraction of new entanglements
                         if not self.flow and self.turn_flow_off:
-                            ensemble_kernel.calc_new_Q_fraction[blockspergrid,threadsperblock](d_Z,d_new_Q,d_temp_Q,d_found_shift,d_found_index,d_res,d_chain_time,
-                                                                                               max_sync_time,d_time_resolution,d_write_time)
+                            ensemble_kernel.track_newQ[blockspergrid,threadsperblock](d_Z,d_new_Q,d_temp_Q,d_found_shift,d_found_index,d_reach_flag)
 
                             
                         #apply jump move for each chain and update time of chain

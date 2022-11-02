@@ -605,12 +605,10 @@ class FSM_LINEAR(object):
                             res = np.zeros(shape=(chain.QN.shape[0],251,8),dtype=float)
                             d_res = cuda.to_device(res)
                             ensemble_kernel.reset_chain_time[blockspergrid, threadsperblock](d_chain_time,d_write_time,self.input_data['flow_time'])
-                            # new_Q = np.zeros(shape=chain.QN.shape[0],dtype=int)
-                            # d_new_Q = cuda.to_device(new_Q)
-                            new_Z = np.zeros(shape=(chain.QN.shape[0],chain.QN.shape[1]),dtype=int)
-                            d_new_Z = cuda.to_device(new_Z)
-                            temp_Z = np.zeros(shape=(chain.QN.shape[0],chain.QN.shape[1]+1),dtype=int)
-                            d_temp_Z = cuda.to_device(temp_Z)
+                            new_Q = np.zeros(shape=(chain.QN.shape[0],chain.QN.shape[1]),dtype=int)
+                            d_new_Q = cuda.to_device(new_Q)
+                            temp_Q = np.zeros(shape=(chain.QN.shape[0],chain.QN.shape[1]+1),dtype=int)
+                            d_temp_Q = cuda.to_device(temp_Q)
                     
                     if not self.flow and self.turn_flow_off:
                         if x_sync==num_time_syncs:
@@ -647,7 +645,7 @@ class FSM_LINEAR(object):
 
                         #if flow is turned off, track fraction of new entanglements
                         if not self.flow and self.turn_flow_off:
-                            ensemble_kernel.calc_new_Q_fraction[blockspergrid,threadsperblock](d_Z,d_new_Z,d_temp_Z,d_found_shift,d_found_index,d_res,d_chain_time,
+                            ensemble_kernel.calc_new_Q_fraction[blockspergrid,threadsperblock](d_Z,d_new_Q,d_temp_Q,d_found_shift,d_found_index,d_res,d_chain_time,
                                                                                                max_sync_time,d_time_resolution,d_write_time)
 
                             

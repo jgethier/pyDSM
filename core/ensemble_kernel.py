@@ -42,7 +42,7 @@ def reset_chain_time(chain_time,write_time,flow_time):
     return
 
 @cuda.jit
-def calc_new_Q_fraction(Z,new_Z,temp_Z,found_shift,found_index,result,chain_time,max_sync_time,time_resolution,write_time):
+def calc_new_Q_fraction(Z,new_Q,temp_Q,found_shift,found_index,result,chain_time,max_sync_time,time_resolution,write_time):
 
     i = cuda.blockIdx.x*cuda.blockDim.x + cuda.threadIdx.x #chain index
     
@@ -54,53 +54,48 @@ def calc_new_Q_fraction(Z,new_Z,temp_Z,found_shift,found_index,result,chain_time
     tz = int(Z[i])
 
     total_Z = tz
-
-    # if (jumpType == 3) or (jumpType == 6) or (jumpType == 4):
-    #     new_QN[i] += 1
     
     if jumpType == 4 or jumpType == 6:
         for j in range(1,tz+1):
-            temp_Z[i,j] = new_Z[i,j-1]
+            temp_Q[i,j] = new_Q[i,j-1]
+    
+    cuda.syncthreads()
 
     if jumpType == 4 or jumpType == 6:
         total_Z+=1
         #shift other entanglements
         for entIdx in range(jumpIdx+1,tz+1):
-            new_Z[i,entIdx] = temp_Z[i,entIdx]
-        new_Z[i,jumpIdx] = 1
+            new_Q[i,entIdx] = temp_Q[i,entIdx]
+        new_Q[i,jumpIdx] = 1
     
     if jumpType == 3:
         total_Z += 1
-        new_Z[i,jumpIdx+1] = 0
-        new_Z[i,jumpIdx] = 1
+        new_Q[i,jumpIdx+1] = 0
+        new_Q[i,jumpIdx] = 1
 
     if jumpType == 2 or jumpType == 5:
         total_Z -= 1
-        if jumpIdx == 0:
-            new_Z[i,jumpIdx] = new_Z[i,jumpIdx+1]
+        if jumpIdx < tz-2:
+            new_Q[i,jumpIdx] = new_Q[i,jumpIdx+1]
             #shift all strands -1 in array for deleted strand
             for entIdx in range(jumpIdx+1,tz-1):
-                new_Z[i,entIdx] = new_Z[i,entIdx+1]
+                new_Q[i,entIdx] = new_Q[i,entIdx+1]
         elif jumpIdx == tz-2:
-            new_Z[i,jumpIdx] = 0
-            new_Z[i,jumpIdx+1] = 0
-        else:
-            new_Z[i,jumpIdx] = new_Z[i,jumpIdx+1]
-            #shift all other strands to the strand+1 value in array (shifting -1 in array)
-            for entIdx in range(jumpIdx+1,tz-1):
-                new_Z[i,entIdx] = new_Z[i,entIdx+1]
+            new_Q[i,jumpIdx] = 0
+            new_Q[i,jumpIdx+1] = 0
 
-    count_new_Z = 0
+    cuda.syncthreads()
+    count_new_Q = 0
     for j in range(0,total_Z-1):
-        if new_Z[i,j] == 1:
-            count_new_Z+=1
+        if new_Q[i,j] == 1:
+            count_new_Q+=1
 
     if int((chain_time[i]%max_sync_time)/time_resolution[0])==0 and write_time[i] != 0:
         arr_index = int(max_sync_time/time_resolution[0])
     else:
         arr_index = int((chain_time[i]%max_sync_time)/time_resolution[0])
 
-    result[i,arr_index,7] = count_new_Z/(total_Z-1) # normalize by number of entanglements (Z-1)
+    result[i,arr_index,7] = count_new_Q/(total_Z-1) # normalize by number of entanglements (Z-1)
 
     return   
 

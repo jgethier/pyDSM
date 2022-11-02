@@ -60,22 +60,11 @@ def calc_new_Q_fraction(Z,new_Z,temp_Z,found_shift,found_index,result,chain_time
     
     if jumpType == 4 or jumpType == 6:
         for j in range(1,tz+1):
-            temp_Z[i,j] = int(new_Z[i,j-1])
+            temp_Z[i,j] = new_Z[i,j-1]
 
-    if jumpType == 4:
+    if jumpType == 4 or jumpType == 6:
         total_Z+=1
-        if jumpIdx == 0:
-            #shift other entanglements
-            for entIdx in range(jumpIdx+1,tz+1):
-                new_Z[i,entIdx] = int(temp_Z[i,entIdx])
-            new_Z[i,jumpIdx] = 1
-
-        for entIdx in range(jumpIdx+1,tz+1):
-            new_Z[i,entIdx] = temp_Z[i,entIdx]
-        new_Z[i,jumpIdx] = 1
-
-    if jumpType == 6:
-        total_Z+=1
+        #shift other entanglements
         for entIdx in range(jumpIdx+1,tz+1):
             new_Z[i,entIdx] = temp_Z[i,entIdx]
         new_Z[i,jumpIdx] = 1
@@ -90,16 +79,16 @@ def calc_new_Q_fraction(Z,new_Z,temp_Z,found_shift,found_index,result,chain_time
         if jumpIdx == 0:
             new_Z[i,jumpIdx] = new_Z[i,jumpIdx+1]
             #shift all strands -1 in array for deleted strand
-            for threadIdx in range(jumpIdx+1,tz-1):
-                new_Z[i,threadIdx] = new_Z[i,threadIdx+1]
+            for entIdx in range(jumpIdx+1,tz-1):
+                new_Z[i,entIdx] = new_Z[i,entIdx+1]
         elif jumpIdx == tz-2:
             new_Z[i,jumpIdx] = 0
             new_Z[i,jumpIdx+1] = 0
         else:
             new_Z[i,jumpIdx] = new_Z[i,jumpIdx+1]
             #shift all other strands to the strand+1 value in array (shifting -1 in array)
-            for threadIdx in range(jumpIdx+1,tz-1):
-                new_Z[i,threadIdx] = new_Z[i,threadIdx+1]
+            for entIdx in range(jumpIdx+1,tz-1):
+                new_Z[i,entIdx] = new_Z[i,entIdx+1]
 
     count_new_Z = 0
     for j in range(0,total_Z-1):

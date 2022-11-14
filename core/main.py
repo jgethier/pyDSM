@@ -826,6 +826,10 @@ class FSM_LINEAR(object):
                     d_rawdata = cuda.to_device(rawdata)
                     d_corr_array = cuda.to_device(corr_array)
 
+                    #flattened grid dimensions
+                    threadsperblock = 256
+                    blockspergrid = (num_chains + threadsperblock - 1)//threadsperblock
+
                     #run the block transformation and calculate correlation with error
                     correlation.calc_corr[blockspergrid,threadsperblock](d_rawdata,calc_type,S_corr,d_data_corr,d_corr_array)
 

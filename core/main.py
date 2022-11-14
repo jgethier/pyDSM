@@ -2,6 +2,7 @@ import os
 import sys
 import time
 import warnings
+import psutil
 import numpy as np
 from numba import cuda
 from numba.cuda.random import create_xoroshiro128p_states
@@ -10,6 +11,7 @@ import yaml
 import math
 import pickle
 import random as rng
+import GPUtil as GPU
 from core.chain import ensemble_chains
 from core.pcd_tau import p_cd, p_cd_linear
 import core.ensemble_kernel as ensemble_kernel
@@ -56,9 +58,15 @@ class FSM_LINEAR(object):
             sys.exit("No GPU found.")
 
         #select gpu device
+        get_device = GPU.getGPUs()
+        self.device = get_device[device_ID]
+        print("Using device: %s"%(self.device.name))
         cuda.select_device(device_ID)
-        device_name = str(cuda.cudadrv.driver.Device(device_ID).name).replace('b','')
-        print("Using device: %s"%(device_name))
+
+        #get minimum available memory for determining correlator type
+        self.device_mem = self.device.memoryFree
+        self.RAM_mem = psutil.virtual_memory().free/1024/1024
+        self.min_mem = min([self.device_mem,self.RAM_mem]) #only used to check size of read/write arrays during postprocessing
 
         #set seed number based on num argument
         SEED = sim_ID*self.input_data['Nchains']
@@ -398,7 +406,7 @@ class FSM_LINEAR(object):
                 print("Equilibrium calculation specified: G(t).")
                 calc_type = 1
                 if self.postprocess:
-                    while block_size*self.input_data['sim_time']/self.input_data['tau_K']>1e8: #check for memory limits for post processing calculations 
+                    while (8.0*block_size*(self.input_data['sim_time']/self.input_data['tau_K'])/1024/1024)>0.9*self.min_mem: #check for memory limits for post processing calculations 
                         block_size -= 100
                         if block_size < 100:
                             postprocess = False 
@@ -408,7 +416,7 @@ class FSM_LINEAR(object):
                 print("Equilbrium calculation specified: MSD.")
                 calc_type = 2
                 if self.postprocess:
-                    while block_size*self.input_data['sim_time']/self.input_data['tau_K']*3>1e8:
+                    while (24.0*block_size*(self.input_data['sim_time']/self.input_data['tau_K'])/1024/1024)>0.9*self.min_mem:
                         block_size -= 100
                         if block_size < 100: 
                             postprocess = False 
@@ -417,9 +425,9 @@ class FSM_LINEAR(object):
             else:
                 sys.exit('Incorrect EQ_calc specified in input file. Please choose "stress" or "msd" for G(t) or MSD for the equilibrium calculation.')
 
-        if not postprocess and self.postprocess: #if simulation time * 100 > 1e9, use on the fly correlator (but will not report uncertainties)
+        if not postprocess and self.postprocess: #if postprocessing arrays are too large, use on the fly correlator (but will not report uncertainties)
             print("")
-            print("Warning: simulation time is too large for postprocessing. Using on the fly correlator for equilibrium calculation. Uncertainty will not be reported.")
+            print("Warning: simulation size is too large for postprocessing. Using on the fly correlator for equilibrium calculation. Uncertainty will not be reported.")
             print("")
         elif not postprocess:
             print("Using on the fly correlator for equilibrium calculation. Uncertainty in the correlation values will not be reported.")

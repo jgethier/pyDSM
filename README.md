@@ -2,13 +2,16 @@
 
 Discrete Slip-link Model (DSM) for GPU in Python
 
+Set up a conda environment:
+```
+1) Install Miniconda (or Anaconda)
+2) In Anaconda prompt, create new environment from file:
+>> conda create env --file environment.yml
+>> conda activate pydsm-env
+
+```
 To run a simulation:
 ```
-Create and activate a python environment that runs python 3.7 or greater.
-
-Install: numpy, math, pyyaml, numba, matplotlib, scipy, alive-progress <-pip
-Install: cudatoolkits <-conda
-
 1) Set input parameters in input.yaml
 
 2) Run the program

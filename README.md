@@ -34,3 +34,13 @@ FLAG ARGUMENTS:
 --fit - a flag to turn on G(t) fitting after simulation is done. 
 --distr - a flag to save initial and final Q, Lpp, and Z distributions to file.
 ```
+
+If the --fit flag is not used, G(t) fits can be done by importing the class in a new Python file:
+```
+from core.fit import CURVE_FIT
+
+filepath='path/to/Gt_result.txt'
+output_path = 'path/to/fit/results/'
+gt_fit = CURVE_FIT(filepath,output_path)
+gt_fit.fit()
+```

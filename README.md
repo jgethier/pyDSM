@@ -1,27 +1,50 @@
-# pyDSM
+## **pyDSM**. Stress Relaxation in Entangled Polymers using the Discrete Slip-link Model (DSM) with GPU in Python
 
-Discrete Slip-link Model (DSM) for GPU in Python
 
-Set up a conda environment:
+**Reference:** Ethier, Jeffrey G.; Cordoba, Andres; Schieber, Jay D. "pyDSM: Fast Quantitative Rheology Predictions for Entangled Polymers in Python", Computer Physics Communications, submitted.
+
+
+<br>
+
+---
+
+<br>
+
+### Installation:
+
+<br>
+
+(1) Create anaconda environment with dependencies:
+
 ```
-1) Install Miniconda (or Anaconda)
-2) In Anaconda prompt, create new environment from file:
->> conda create env --file environment.yml
->> conda activate pydsm-env
+conda create env --file environment.yml
+```
+
+(2) Activate conda environment:
 
 ```
+conda activate pydsm-env
+```
+
+<br>
+
+
 To run a simulation:
+
+(1) Set input parameters in input.yaml
+
+(2) Run the program
 ```
-1) Set input parameters in input.yaml
-
-2) Run the program
->> python gpu_dsm.py
-
+python gpu_dsm.py
 ```
 
 POSITIONAL ARGUMENTS:
+
+sim_ID - An integer for the simulation ID. Appended to the filenames. 
+
+Example: 
 ```
-sim_ID - An integer for the simulation ID. Appended to the filenames. Example: python gpu_dsm.py 1
+python gpu_dsm.py 1
 ```
 
 FLAG ARGUMENTS:

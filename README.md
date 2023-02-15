@@ -27,12 +27,16 @@ conda activate pydsm-env
 
 ### Running a simulation:
 
+<br>
+
 (1) Set input parameters in input.yaml
 
 (2) Run the program
 ```
 python gpu_dsm.py
 ```
+
+<br>
 
 POSITIONAL ARGUMENTS:
 
@@ -42,6 +46,8 @@ Example:
 ```
 python gpu_dsm.py 1
 ```
+
+<br>
 
 FLAG ARGUMENTS:
 

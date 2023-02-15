@@ -25,7 +25,7 @@ conda activate pydsm-env
 <br>
 
 
-To run a simulation:
+### Running a simulation:
 
 (1) Set input parameters in input.yaml
 

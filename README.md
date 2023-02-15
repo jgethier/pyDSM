@@ -2,7 +2,7 @@
 
 <br> 
 
-**Reference:** Ethier, Jeffrey G.; Cordoba, Andres; Schieber, Jay D. "pyDSM: Fast Quantitative Rheology Predictions for Entangled Polymers in Python", Computer Physics Communications, submitted.
+**Reference:** Ethier, Jeffrey G.; C&oacute;rdoba, Andres; Schieber, Jay D. "pyDSM: Fast Quantitative Rheology Predictions for Entangled Polymers in Python", Computer Physics Communications, submitted.
 
 <br>
 

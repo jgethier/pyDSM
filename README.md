@@ -1,8 +1,8 @@
-## **pyDSM**. Stress Relaxation in Entangled Polymers using the Discrete Slip-link Model (DSM) with GPU in Python
+## **pyDSM**: Discrete Slip-link Model (DSM) in Python for Fast Quantitative Rheology Predictions of Entangled Polymers
 
+<br> 
 
 **Reference:** Ethier, Jeffrey G.; Cordoba, Andres; Schieber, Jay D. "pyDSM: Fast Quantitative Rheology Predictions for Entangled Polymers in Python", Computer Physics Communications, submitted.
-
 
 <br>
 

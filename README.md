@@ -24,7 +24,6 @@ conda activate pydsm-env
 
 <br>
 
-
 ### Running a simulation:
 
 <br>

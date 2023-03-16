@@ -481,8 +481,8 @@ class FSM_LINEAR(object):
         if self.correlator=='otf':
             S_corr = math.ceil(np.log(self.input_data['sim_time']/self.input_data['tau_K']/p)/np.log(m)) + 1 #number of correlator levels
         else:
-            S_corr=math.floor(np.log(dataLength/p)/np.log(m)) #number of correlator levels
-            num_time_syncs=math.floor(np.log(dataLength/(p*g))/np.log(m))
+            S_corr=int(math.floor(np.log(dataLength/p)/np.log(m))) #number of correlator levels
+            num_time_syncs=int(math.floor(np.log(dataLength/(p*g))/np.log(m)))
         
         if self.correlator=='otf':
             #initialize arrays for correlator
@@ -574,6 +574,10 @@ class FSM_LINEAR(object):
             for j in range(p*m**i,p*m**(i+1),m**i):
                 count+=1
                 corr_time.append(j/(1.0/self.input_data['tau_K']))
+        for i in range(num_time_syncs,S_corr):
+            for j in range(p*m**i,p*m**(i+1),m**i):
+                count+=1
+                corr_time.append(j/(1.0/self.input_data['tau_K']))
 
         data_corr = np.zeros(shape=(self.input_data['Nchains'],count,2),dtype=float) #hold average chain stress/com correlations 
         corr_array = np.zeros(shape=(self.input_data['Nchains'],p*g*m),dtype=float) #array to store correlation values for averaging each chain inside kernel
@@ -604,6 +608,7 @@ class FSM_LINEAR(object):
                         else:
                             next_sync_time = p*g*m
                     else:
+                        correlation.coarse_result_array[blockspergrid,threadsperblock](d_res,g,d_calc_type) #keep half of result array values for block transformation
                         next_sync_time = p*g*m**(x_sync+1) - p*g*m**(x_sync)
                     
                     #if simulating shear flow and flow time is less than total simulation time, turn off flow when flow time is reached
@@ -735,11 +740,14 @@ class FSM_LINEAR(object):
                     #if not using OTF correlator, update progress bar
                     if self.correlator=='munch':
                         #run the block transformation and calculate correlation with error
-                        correlation.calc_corr[blockspergrid,threadsperblock](d_res,d_calc_type,x_sync,d_data_corr,d_corr_array,d_corr_index)
-                        correlation.coarse_result_array[blockspergrid,threadsperblock](d_res,g,d_calc_type)
+                        correlation.calc_corr[blockspergrid,threadsperblock](d_res,d_calc_type,num_time_syncs,x_sync,d_data_corr,d_corr_array,d_corr_index)
                         bar((x_sync+1)/num_time_syncs)
         
-        
+        if self.correlator=='munch':
+            #finish last few correlations
+            for i in range(num_time_syncs,S_corr):
+                correlation.calc_corr[blockspergrid,threadsperblock](d_res,d_calc_type,num_time_syncs,i,d_data_corr,d_corr_array,d_corr_index)
+
         #SIMULATION ENDS---------------------------------------------------------------------------------------------------------------------------
 
         t1 = time.time()

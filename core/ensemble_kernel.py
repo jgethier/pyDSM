@@ -461,18 +461,84 @@ def choose_step_kernel(Z,shift_probs,sum_W_sorted,uniform_rand,rand_used,found_i
 
     return
 
+@cuda.jit
+def time_control_munch_kernel(Z,QN,QN_first,NK,chain_time,tdt,result,calc_type,reach_flag,next_sync_time,write_time,corrLevel,p,g,m):
+    
+    i = cuda.blockIdx.x*cuda.blockDim.x + cuda.threadIdx.x #chain index
+    
+    if i >= QN.shape[0]:
+        return
+            
+    if reach_flag[i] != 0:
+        return
+
+    if (chain_time[i] >= next_sync_time) and chain_time[i] <= (write_time[i]*m**corrLevel):
+        
+        #if sync time is reached and stress was recorded, set reach flag to 1
+        reach_flag[i] = 1
+        tdt[i] = 0.0
+        write_time[i] = 0
+        chain_time[i] -= next_sync_time
+        
+        return
+        
+    if (chain_time[i] > write_time[i]*m**corrLevel): #if chain time reaches next time to record stress/CoM (every time_resolution)
+            
+        tz = int(Z[i])
+        
+        if corrLevel == 0:
+            arr_index = int((chain_time[i])/(m**corrLevel))
+        else:
+            arr_index = int((chain_time[i]+p*g*m**corrLevel)/(m**corrLevel))
+
+        if calc_type[0] == 1:
+            stress_xy = stress_yz = stress_xz = 0.0 
+
+            for j in range(0,tz):
+                stress_xy -= (3.0*QN[i,j,0]*QN[i,j,1] / QN[i,j,3]) #tau_xy
+                stress_yz -= (3.0*QN[i,j,1]*QN[i,j,2] / QN[i,j,3]) #tau_yz
+                stress_xz -= (3.0*QN[i,j,0]*QN[i,j,2] / QN[i,j,3]) #tau_xz
+            
+            result[i,arr_index,0] = stress_xy
+        
+        elif calc_type[0] == 2:
+            QN_1 = QN_first[i,:] #need fixed frame of reference, choosing first entanglement which is tracked during simulation
+            chain_com = cuda.local.array(3,float32)
+            temp = cuda.local.array(3,float32)
+            prev_QN = cuda.local.array(3,float32)
+            
+            chain_com[0] = chain_com[1] = chain_com[2] = 0.0
+            temp[0] = temp[1] = temp[2] = 0.0
+            prev_QN[0] = prev_QN[1] = prev_QN[2] = 0.0
+            
+            for j in range(0,tz):
+                QN_i = QN[i,j,:]
+                term = cuda.local.array(3,float32)
+                term[0] = term[1] = term[2] = 0.0
+                for k in range(0,3):
+                    temp[k] += prev_QN[k]
+                    term[k] += temp[k]
+                    term[k] += QN_i[k]/2.0
+                    chain_com[k] += term[k] * QN_i[3] / NK[0]
+                    prev_QN[k] = QN_i[k]
+                
+            result[i,arr_index,0] = chain_com[0] + QN_1[0]
+            result[i,arr_index,1] = chain_com[1] + QN_1[1]
+            result[i,arr_index,2] = chain_com[2] + QN_1[2]
+    
+        write_time[i]+=1
+    
+    return 
+
 
 @cuda.jit
-def time_control_kernel(Z,QN,new_Q,QN_first,NK,chain_time,tdt,result,calc_type,flow,flow_off,reach_flag,next_sync_time,max_sync_time,write_time,time_resolution,result_index,postprocess):
+def time_control_kernel(Z,QN,new_Q,QN_first,NK,chain_time,tdt,result,calc_type,flow,flow_off,reach_flag,next_sync_time,max_sync_time,write_time,time_resolution,result_index):
     
     
     i = cuda.blockIdx.x*cuda.blockDim.x + cuda.threadIdx.x #chain index
     
     if i >= QN.shape[0]:
         return
-
-    if not postprocess:
-        result[i,result_index,0] = result[i,result_index,1] = result[i,result_index,2] = result[i,result_index,3] = 0.0
             
     if reach_flag[i] != 0:
         return
@@ -491,13 +557,7 @@ def time_control_kernel(Z,QN,new_Q,QN_first,NK,chain_time,tdt,result,calc_type,f
             
             tz = int(Z[i])
             
-            if postprocess:
-                if int((chain_time[i]%max_sync_time)/time_resolution[0])==0 and write_time[i] != 0:
-                    arr_index = int(max_sync_time/time_resolution[0])
-                else:
-                    arr_index = int((chain_time[i]%max_sync_time)/time_resolution[0]) 
-            else:
-                arr_index = result_index 
+            arr_index = result_index 
 
             if calc_type[0] == 1:
                 stress_xy = stress_yz = stress_xz = 0.0 
@@ -508,10 +568,9 @@ def time_control_kernel(Z,QN,new_Q,QN_first,NK,chain_time,tdt,result,calc_type,f
                     stress_xz -= (3.0*QN[i,j,0]*QN[i,j,2] / QN[i,j,3]) #tau_xz
                 
                 result[i,arr_index,0] = stress_xy
-                if not postprocess:
-                    result[i,arr_index,1] = stress_yz
-                    result[i,arr_index,2] = stress_xz
-                    result[i,arr_index,3] = 1.0
+                result[i,arr_index,1] = stress_yz
+                result[i,arr_index,2] = stress_xz
+                result[i,arr_index,3] = 1.0
             
             elif calc_type[0] == 2:
                 QN_1 = QN_first[i,:] #need fixed frame of reference, choosing first entanglement which is tracked during simulation
@@ -537,8 +596,7 @@ def time_control_kernel(Z,QN,new_Q,QN_first,NK,chain_time,tdt,result,calc_type,f
                 result[i,arr_index,0] = chain_com[0] + QN_1[0]
                 result[i,arr_index,1] = chain_com[1] + QN_1[1]
                 result[i,arr_index,2] = chain_com[2] + QN_1[2]
-                if not postprocess:
-                    result[i,arr_index,3] = 1.0
+                result[i,arr_index,3] = 1.0
         
         if not bool(flow[0]) and bool(flow_off[0]): #track equilibrium variables after cessation of flow
             
@@ -549,7 +607,6 @@ def time_control_kernel(Z,QN,new_Q,QN_first,NK,chain_time,tdt,result,calc_type,f
             else:
                 arr_index = int((chain_time[i]%max_sync_time)/time_resolution[0])
 
-            
             stress_xx = stress_yy = stress_zz = stress_xy = stress_yz = stress_xz = 0.0
             count_new_Q = 0
             for j in range(0,int(Z[i])):

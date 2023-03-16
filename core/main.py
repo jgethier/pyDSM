@@ -31,8 +31,8 @@ class FSM_LINEAR(object):
         #determine correlator (on the fly or post-process)
         if correlator == 'otf':
             self.postprocess = False
-        else:
-            self.postprocess = True 
+        else: #changing MUnCH to on-the-fly version #TODO: remove otf once implemented
+            self.postprocess = False
 
         #set fit to True if G(t) will be fit 
         self.fit = fit
@@ -393,44 +393,21 @@ class FSM_LINEAR(object):
             new_Q = np.array([[]])
             d_new_Q = cuda.to_device(new_Q)
             #determine system size for post-processing
-            postprocess = True
             d_kappa = cuda.to_device(np.array(self.input_data['kappa'],dtype=float))
-        
-        postprocess = self.postprocess
 
         #if not flow, check for equilibrium calculation type (G(t) or MSD)
         if not self.flow:
-            block_size = self.input_data['Nchains'] #blocks of chains to be post-processed simultanously
             
             if self.input_data['EQ_calc']=='stress':
                 print("Equilibrium calculation specified: G(t).")
                 calc_type = 1
-                if self.postprocess:
-                    while (8.0*block_size*(self.input_data['sim_time']/self.input_data['tau_K'])/1024/1024)>0.9*self.min_mem: #check for memory limits for post processing calculations 
-                        block_size -= 100
-                        if block_size < 100:
-                            postprocess = False 
-                            break 
                 
             elif self.input_data['EQ_calc']=='msd': #check for memory limits for post processing calculations
                 print("Equilbrium calculation specified: MSD.")
                 calc_type = 2
-                if self.postprocess:
-                    while (24.0*block_size*(self.input_data['sim_time']/self.input_data['tau_K'])/1024/1024)>0.9*self.min_mem:
-                        block_size -= 100
-                        if block_size < 100: 
-                            postprocess = False 
-                            break 
             
             else:
                 sys.exit('Incorrect EQ_calc specified in input file. Please choose "stress" or "msd" for G(t) or MSD for the equilibrium calculation.')
-
-        if not postprocess and self.postprocess: #if postprocessing arrays are too large, use on the fly correlator (but will not report uncertainties)
-            print("")
-            print("Warning: simulation size is too large for postprocessing. Using on the fly correlator for equilibrium calculation. Uncertainty will not be reported.")
-            print("")
-        elif not postprocess:
-            print("Using on the fly correlator for equilibrium calculation. Uncertainty in the correlation values will not be reported.")
 
         #keep track of first entanglement for MSD
         QN_first = np.zeros(shape=(chain.QN.shape[0],3)) 
@@ -500,6 +477,10 @@ class FSM_LINEAR(object):
         #correlator parameters for both block transformation or on-the-fly
         p = correlation.p
         m = correlation.m
+        dataLength = self.input_data['sim_time']/self.input_data['tau_K']
+        correlation.g=int(round(loadlength/(p*m)))
+        uplima=math.floor(np.log(datalength/p)/np.log(m))
+        uplim=math.floor(np.log(datalength/(p*g))/np.log(m))
         S_corr = math.ceil(np.log(self.input_data['sim_time']/self.input_data['tau_K']/p)/np.log(m)) + 1 #number of correlator levels
         
         if not postprocess:
@@ -564,10 +545,10 @@ class FSM_LINEAR(object):
                 num_time_syncs_afterflow = int(math.ceil((self.input_data['sim_time']-self.input_data['flow_time'])/max_sync_time_afterflow))
         else:
             if postprocess:
-                max_sync_time = 250*self.input_data['tau_K'] #setting sync time to t = 250*tau_K
-                #set max sync time to simulation time if simulation time is less than sync time
-                if max_sync_time > self.input_data['sim_time']:
-                    max_sync_time = self.input_data['sim_time']
+                # max_sync_time = 250*self.input_data['tau_K'] #setting sync time to t = 250*tau_K
+                # #set max sync time to simulation time if simulation time is less than sync time
+                # if max_sync_time > self.input_data['sim_time']:
+                #     max_sync_time = self.input_data['sim_time']
                 if calc_type == 1: #result array (G(t) or MSD) dimensions are set based on EQ_calc
                     res = np.zeros(shape=(chain.QN.shape[0],251,1),dtype=float) #initialize result array (stress or CoM) to always hold 250 stress values per chain
                 elif calc_type == 2:
@@ -584,7 +565,10 @@ class FSM_LINEAR(object):
 
         #calculate number of time syncs based on max_sync_time
         if not self.turn_flow_off:
-            num_time_syncs = int(math.ceil(self.input_data['sim_time'] / max_sync_time))
+            if postprocess:
+                num_time_syncs = S_corr
+            else:
+                num_time_syncs = int(math.ceil(self.input_data['sim_time'] / max_sync_time))
         else:
             num_time_syncs = num_time_syncs_flow + num_time_syncs_afterflow
         

@@ -540,7 +540,8 @@ def time_control_kernel(Z,QN,new_Q,QN_first,NK,chain_time,tdt,result,calc_type,f
     if i >= QN.shape[0]:
         return
 
-    result[i,result_index,0] = result[i,result_index,1] = result[i,result_index,2] = result[i,result_index,3] = 0.0
+    if not bool(flow[0]) and not bool(flow_off[0]):
+        result[i,result_index,0] = result[i,result_index,1] = result[i,result_index,2] = result[i,result_index,3] = 0.0
             
     if reach_flag[i] != 0:
         return

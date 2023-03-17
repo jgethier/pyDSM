@@ -34,6 +34,7 @@ class FSM_LINEAR(object):
         #set fit to True if G(t) will be fit 
         self.fit = fit
         
+        #if True, distributions will be saved
         self.distr=distr
         
         #read in input file and parameters
@@ -73,8 +74,14 @@ class FSM_LINEAR(object):
         
         rng.seed(self.seed)
 
-        return
+        #checks for input data
+        if self.input_data['tau_K'] < 1:
+            print("tau_K must be larger than or equal to 1. Using tau_K = 1.")
+            self.input_data['tau_K'] = 1
+        else:
+            self.input_data['tau_K'] = round(self.input_data['tau_K'])
 
+        return
 
     def save_distributions(self,distr,QN,Z):
         '''
@@ -475,16 +482,17 @@ class FSM_LINEAR(object):
         p = correlation.p
         m = correlation.m
         dataLength = self.input_data['sim_time']/self.input_data['tau_K'] #total number of data points
-        arrayLength = 250 #number of raw data points per chain
+        arrayLength = 1024 #number of raw data points per chain
         g = int(round(arrayLength/(p*m)))
 
         if self.correlator=='otf':
-            S_corr = math.ceil(np.log(self.input_data['sim_time']/self.input_data['tau_K']/p)/np.log(m)) + 1 #number of correlator levels
+            S_corr = math.ceil(np.log(dataLength/p)/np.log(m)) + 1 #number of correlator levels
         else:
             S_corr=int(math.floor(np.log(dataLength/p)/np.log(m))) #number of correlator levels
             num_time_syncs=int(math.floor(np.log(dataLength/(p*g))/np.log(m)))
         
         if self.correlator=='otf':
+            print("Using on the fly correlator for equilibrium calculation. Uncertainty in the correlation values will not be reported.")
             #initialize arrays for correlator
             D_array = np.zeros(shape=(chain.QN.shape[0],S_corr,p,3),dtype=float)
             D_shift_array = np.zeros(shape=(chain.QN.shape[0],S_corr,p,3),dtype=float)
@@ -551,9 +559,9 @@ class FSM_LINEAR(object):
                 res = np.zeros(shape=(chain.QN.shape[0],250,4),dtype=float) 
             else:
                 if calc_type == 1: #result array (G(t) or MSD) dimensions are set based on EQ_calc
-                    res = np.zeros(shape=(chain.QN.shape[0],p*m*g,1),dtype=float) #initialize result array (stress or CoM) to always hold 250 stress values per chain
+                    res = np.zeros(shape=(chain.QN.shape[0],p*m*g+1,1),dtype=float) #initialize result array (stress or CoM) to always hold 250 stress values per chain
                 elif calc_type == 2:
-                    res = np.zeros(shape=(chain.QN.shape[0],p*m*g,3),dtype=float) 
+                    res = np.zeros(shape=(chain.QN.shape[0],p*m*g+1,3),dtype=float) 
         
         #move result array, calc_type, and flow variables to device
         d_res = cuda.to_device(res) 
@@ -565,28 +573,30 @@ class FSM_LINEAR(object):
         if self.turn_flow_off:
             num_time_syncs = num_time_syncs_flow + num_time_syncs_afterflow
 
-        count = 0
-        corr_time = [] #array to hold correlated times (log scale) 
-        for i in range(0,p*m):
-            count+=1
-            corr_time.append(i/(1.0/self.input_data['tau_K']))
-        for i in range(1,num_time_syncs):
-            for j in range(p*m**i,p*m**(i+1),m**i):
+        if self.correlator == 'munch':
+            count = 0
+            corr_time = [] #array to hold correlated times (log scale) 
+            for i in range(0,p*m):
                 count+=1
-                corr_time.append(j/(1.0/self.input_data['tau_K']))
-        for i in range(num_time_syncs,S_corr):
-            for j in range(p*m**i,p*m**(i+1),m**i):
-                count+=1
-                corr_time.append(j/(1.0/self.input_data['tau_K']))
+                corr_time.append(i/(1.0/self.input_data['tau_K']))
+            if num_time_syncs > 1:
+                for i in range(1,num_time_syncs):
+                    for j in range(p*m**i,p*m**(i+1),m**i):
+                        count+=1
+                        corr_time.append(j/(1.0/self.input_data['tau_K']))
+            for i in range(num_time_syncs,S_corr):
+                for j in range(p*m**i,p*m**(i+1),m**i):
+                    count+=1
+                    corr_time.append(j/(1.0/self.input_data['tau_K']))
 
-        data_corr = np.zeros(shape=(self.input_data['Nchains'],count,2),dtype=float) #hold average chain stress/com correlations 
-        corr_array = np.zeros(shape=(self.input_data['Nchains'],p*g*m),dtype=float) #array to store correlation values for averaging each chain inside kernel
-        corr_index = np.ones(shape=(self.input_data['Nchains']),dtype=int)*-1
+            data_corr = np.zeros(shape=(self.input_data['Nchains'],count,2),dtype=float) #hold average chain stress/com correlations 
+            corr_array = np.zeros(shape=(self.input_data['Nchains'],p*g*m),dtype=float) #array to store correlation values for averaging each chain inside kernel
+            corr_index = np.ones(shape=(self.input_data['Nchains']),dtype=int)*-1
 
-        #transfer to device
-        d_corr_index = cuda.to_device(corr_index)
-        d_data_corr = cuda.to_device(data_corr)
-        d_corr_array = cuda.to_device(corr_array)
+            #transfer to device
+            d_corr_index = cuda.to_device(corr_index)
+            d_data_corr = cuda.to_device(data_corr)
+            d_corr_array = cuda.to_device(corr_array)
         
         #SIMULATION STARTS -------------------------------------------------------------------------------------------------------------------------------
         
@@ -606,10 +616,10 @@ class FSM_LINEAR(object):
                         if self.correlator=='otf':
                             next_sync_time = self.input_data['sim_time']
                         else:
-                            next_sync_time = p*g*m
+                            next_sync_time = p*g*m*self.input_data['tau_K']
                     else:
                         correlation.coarse_result_array[blockspergrid,threadsperblock](d_res,g,d_calc_type) #keep half of result array values for block transformation
-                        next_sync_time = p*g*m**(x_sync+1) - p*g*m**(x_sync)
+                        next_sync_time = (p*g*m**(x_sync+1) - p*g*m**(x_sync))*self.input_data['tau_K']
                     
                     #if simulating shear flow and flow time is less than total simulation time, turn off flow when flow time is reached
                     if self.flow and self.turn_flow_off:
@@ -630,7 +640,6 @@ class FSM_LINEAR(object):
                         else:
                             next_sync_time = (x_sync-num_time_syncs_flow)*max_sync_time
 
-                    
                     #initialize flags for chain sync (if chain times reach the sync time, flag goes up)
                     reach_flag_all = False
                     sum_reach_flags = 0
@@ -649,7 +658,7 @@ class FSM_LINEAR(object):
                         if self.correlator =='munch' and not self.flow:
                             ensemble_kernel.time_control_munch_kernel[blockspergrid,threadsperblock](d_Z,d_QN,d_QN_first,d_NK,d_chain_time,
                                                                     d_tdt,d_res,d_calc_type,d_reach_flag,next_sync_time,
-                                                                    d_write_time,x_sync,p,g,m)
+                                                                    d_write_time,d_time_resolution,x_sync,p,g,m)
 
                         else:
                             ensemble_kernel.time_control_kernel[blockspergrid, threadsperblock](d_Z,d_QN,d_new_Q,d_QN_first,d_NK,d_chain_time,
@@ -680,15 +689,6 @@ class FSM_LINEAR(object):
 
                         #update step counter for arrays and array positions
                         self.step_count+=1
-
-                        #if OTF correlator, update progress bar based on chain times
-                        if (self.step_count%50==0) and (self.correlator=='otf'):
-                            check_time = d_write_time.copy_to_host()
-                            sum_time = 0
-                            for i in range(0,len(check_time)):
-                                sum_time += int(check_time[i])
-                            total_progress = round(sum_time/self.input_data['Nchains']/self.input_data['sim_time'],2)
-                            bar(total_progress)
                     
                         #record entanglement lifetime distribution
                         if analytic==False:
@@ -723,7 +723,24 @@ class FSM_LINEAR(object):
 
                         #if all reach_flags are 1, sum should equal number of chains and all chains are synced
                         reach_flag_all = (sum_reach_flags == int(self.input_data['Nchains'])) 
-                    
+
+                        #update progress bar based on chain times
+                        if (self.step_count==0):
+                            check_time = d_chain_time.copy_to_host()
+                            sum_time = 0
+                            if self.correlator == 'otf':
+                                sum_time = int(np.sum(np.floor(check_time)))
+                                total_progress = round(sum_time/self.input_data['Nchains']/self.input_data['sim_time'],2)
+                            else:
+                                reach_flag1 = np.argwhere(reach_flag_host==1)
+                                reach_flag0 = np.argwhere(reach_flag_host==0)
+                                if x_sync == 0:
+                                    sum_time += int(np.sum(np.floor(check_time[reach_flag0])))
+                                else:
+                                    sum_time = int(np.sum(np.floor(check_time[reach_flag0])+p*g*m**(x_sync)*self.input_data['tau_K']))
+                                sum_time += int(np.sum(np.floor(check_time[reach_flag1])+p*g*m**(x_sync+1)*self.input_data['tau_K']))
+                                total_progress = round(sum_time/self.input_data['Nchains']/(p*g*m**(num_time_syncs)*self.input_data['tau_K']),2)
+                            bar(total_progress)
 
                 
                     if self.flow: #if flow, calculate flow stress tensor for each chain
@@ -741,7 +758,8 @@ class FSM_LINEAR(object):
                     if self.correlator=='munch':
                         #run the block transformation and calculate correlation with error
                         correlation.calc_corr[blockspergrid,threadsperblock](d_res,d_calc_type,num_time_syncs,x_sync,d_data_corr,d_corr_array,d_corr_index)
-                        bar((x_sync+1)/num_time_syncs)
+                        # if num_time_syncs > 1:
+                        #     bar((x_sync+1)/num_time_syncs)
         
         if self.correlator=='munch':
             #finish last few correlations
@@ -813,7 +831,7 @@ class FSM_LINEAR(object):
                     if self.correlator=='otf':
                         f.write('Time, G(t)\n')
                         for m in range(0,len(corr_time)):
-                                f.write("%d, %.4f \n"%(corr_time[m],corr_aver[m]))
+                            f.write("%d, %.4f \n"%(corr_time[m],corr_aver[m]))
                     else:
                         f.write('Time, G(t), Error\n')
                         for m in range(0,len(corr_time)):
@@ -829,7 +847,7 @@ class FSM_LINEAR(object):
                         for m in range(0,len(corr_time)):
                             f.write("%d, %.4f \n"%(corr_time[m],corr_aver[m]))
                     else:
-                        f.write('Time, MSD, Error')
+                        f.write('Time, MSD, Error\n')
                         for m in range(0,len(corr_time)):
                             f.write("%d, %.4f, %.4f \n"%(corr_time[m],corr_aver[m],corr_error[m]))
 

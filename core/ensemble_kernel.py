@@ -462,7 +462,7 @@ def choose_step_kernel(Z,shift_probs,sum_W_sorted,uniform_rand,rand_used,found_i
     return
 
 @cuda.jit
-def time_control_munch_kernel(Z,QN,QN_first,NK,chain_time,tdt,result,calc_type,reach_flag,next_sync_time,write_time,corrLevel,p,g,m):
+def time_control_munch_kernel(Z,QN,QN_first,NK,chain_time,tdt,result,calc_type,reach_flag,next_sync_time,write_time,time_res,corrLevel,p,g,m):
     
     i = cuda.blockIdx.x*cuda.blockDim.x + cuda.threadIdx.x #chain index
     
@@ -472,24 +472,24 @@ def time_control_munch_kernel(Z,QN,QN_first,NK,chain_time,tdt,result,calc_type,r
     if reach_flag[i] != 0:
         return
 
-    if (chain_time[i] >= next_sync_time) and chain_time[i] <= (write_time[i]*m**corrLevel):
+    if (chain_time[i] >= next_sync_time) and chain_time[i] <= (write_time[i]*time_res[0]*m**corrLevel):
         
         #if sync time is reached and stress was recorded, set reach flag to 1
         reach_flag[i] = 1
         tdt[i] = 0.0
-        write_time[i] = 0
+        write_time[i] = 1
         chain_time[i] -= next_sync_time
         
         return
         
-    if (chain_time[i] > write_time[i]*m**corrLevel): #if chain time reaches next time to record stress/CoM (every time_resolution)
+    if (chain_time[i] > write_time[i]*time_res[0]*m**corrLevel): #if chain time reaches next time to record stress/CoM (every time_res)
             
         tz = int(Z[i])
         
         if corrLevel == 0:
-            arr_index = int((chain_time[i])/(m**corrLevel))
+            arr_index = int(math.floor(chain_time[i]/time_res[0])/(m**corrLevel))
         else:
-            arr_index = int((chain_time[i]+p*g*m**corrLevel)/(m**corrLevel))
+            arr_index = int(math.floor((chain_time[i]+p*g*m**corrLevel*time_res[0])/time_res[0])/(m**corrLevel))
 
         if calc_type[0] == 1:
             stress_xy = stress_yz = stress_xz = 0.0 
@@ -532,18 +532,20 @@ def time_control_munch_kernel(Z,QN,QN_first,NK,chain_time,tdt,result,calc_type,r
 
 
 @cuda.jit
-def time_control_kernel(Z,QN,new_Q,QN_first,NK,chain_time,tdt,result,calc_type,flow,flow_off,reach_flag,next_sync_time,max_sync_time,write_time,time_resolution,result_index):
+def time_control_kernel(Z,QN,new_Q,QN_first,NK,chain_time,tdt,result,calc_type,flow,flow_off,reach_flag,next_sync_time,max_sync_time,write_time,time_res,result_index):
     
     
     i = cuda.blockIdx.x*cuda.blockDim.x + cuda.threadIdx.x #chain index
     
     if i >= QN.shape[0]:
         return
+
+    result[i,result_index,0] = result[i,result_index,1] = result[i,result_index,2] = result[i,result_index,3] = 0.0
             
     if reach_flag[i] != 0:
         return
 
-    if (chain_time[i] >= next_sync_time) and chain_time[i] <= (write_time[i]*time_resolution[0]):
+    if (chain_time[i] >= next_sync_time) and chain_time[i] <= (write_time[i]*time_res[0]):
         
         #if sync time is reached and stress was recorded, set reach flag to 1
         reach_flag[i] = 1
@@ -551,7 +553,7 @@ def time_control_kernel(Z,QN,new_Q,QN_first,NK,chain_time,tdt,result,calc_type,f
         
         return
         
-    if (chain_time[i] > write_time[i]*time_resolution[0]): #if chain time reaches next time to record stress/CoM (every time_resolution)
+    if (chain_time[i] > write_time[i]*time_res[0]): #if chain time reaches next time to record stress/CoM (every time_res)
         
         if not bool(flow[0]) and not bool(flow_off[0]):
             
@@ -602,10 +604,10 @@ def time_control_kernel(Z,QN,new_Q,QN_first,NK,chain_time,tdt,result,calc_type,f
             
             tz = int(Z[i])
 
-            if int((chain_time[i]%max_sync_time)/time_resolution[0])==0 and write_time[i] != 0:
-                arr_index = int(max_sync_time/time_resolution[0])
+            if int((chain_time[i]%max_sync_time)/time_res[0])==0 and write_time[i] != 0:
+                arr_index = int(max_sync_time/time_res[0])
             else:
-                arr_index = int((chain_time[i]%max_sync_time)/time_resolution[0])
+                arr_index = int((chain_time[i]%max_sync_time)/time_res[0])
 
             stress_xx = stress_yy = stress_zz = stress_xy = stress_yz = stress_xz = 0.0
             count_new_Q = 0

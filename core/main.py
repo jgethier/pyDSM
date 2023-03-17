@@ -758,8 +758,6 @@ class FSM_LINEAR(object):
                     if self.correlator=='munch':
                         #run the block transformation and calculate correlation with error
                         correlation.calc_corr[blockspergrid,threadsperblock](d_res,d_calc_type,num_time_syncs,x_sync,d_data_corr,d_corr_array,d_corr_index)
-                        # if num_time_syncs > 1:
-                        #     bar((x_sync+1)/num_time_syncs)
         
         if self.correlator=='munch':
             #finish last few correlations

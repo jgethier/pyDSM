@@ -132,7 +132,7 @@ def corr_block(chainIdx, chainData, tj, corr, arr_index, xV, calc_type):
     
     #number of correlations
     n = int(len(chainData[:,0])-tj)
-
+    
     #begin correlation averaging for timelag tj
     xav = 0
     for r in range(0,n):

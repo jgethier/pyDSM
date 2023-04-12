@@ -2,7 +2,7 @@ from numba import cuda, float64
 import math
 
 #correlator parameters
-p = 8 
+p = 16 
 m = 2
 
 @cuda.jit(device=True)

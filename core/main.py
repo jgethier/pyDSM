@@ -297,7 +297,11 @@ class FSM_LINEAR(object):
         p = correlation.p
         m = correlation.m
         dataLength = self.input_data['sim_time']/self.input_data['tau_K'] #total number of data points
-        arrayLength = 1024 #number of raw data points per chain
+        if dataLength < 3000:
+            arrayLength = dataLength
+        else:
+            factor = int(round(dataLength/2000))
+            arrayLength = int(round(dataLength/factor)) #number of raw data points per chain
         g = int(round(arrayLength/(p*m)))
 
         if self.correlator=='otf':

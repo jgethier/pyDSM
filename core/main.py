@@ -319,10 +319,10 @@ class FSM_LINEAR(object):
                 res = np.zeros(shape=(chain.QN.shape[0],250,4),dtype=float) 
             else:
                 S_corr= math.floor(np.log(dataLength/p)/np.log(m)) #number of correlator levels
-                if dataLength < 9984: #max result array size of 10000
+                if dataLength < 1024: #max result array size of 10000
                     arrayLength = dataLength
                 else:
-                    arrayLength = 9984
+                    arrayLength = 1024
                 g = math.floor(arrayLength/(p*m))
                 num_time_syncs=int(math.floor(np.log(dataLength/(p*g))/np.log(m)))
                 arrayLength = p*g*m
@@ -450,7 +450,6 @@ class FSM_LINEAR(object):
                             correlation.coarse_result_array[blockspergrid,threadsperblock](d_res,g,d_calc_type) #keep half of result array values for block transformation
                             next_sync_time = (p*g*m**(x_sync+1) - p*g*m**(x_sync))*self.input_data['tau_K']
                     
-                    print(next_sync_time)
                     #if simulating shear flow and flow time is less than total simulation time, turn off flow when flow time is reached
                     if self.flow and self.turn_flow_off:
                         if next_sync_time>self.input_data['flow_time'] and self.flow:

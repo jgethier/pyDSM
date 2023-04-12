@@ -322,14 +322,10 @@ class FSM_LINEAR(object):
                 if dataLength < 9984: #max result array size of 10000
                     arrayLength = dataLength
                 else:
-                    #factor = int(round(dataLength/5120))
-                    #arrayLength = int(round(dataLength/factor))
                     arrayLength = 9984
                 g = math.floor(arrayLength/(p*m))
                 num_time_syncs=int(math.floor(np.log(dataLength/(p*g))/np.log(m)))
                 arrayLength = p*g*m
-                print(g,arrayLength,p*m*g)
-                print(S_corr,num_time_syncs)
 
                 if calc_type == 1: #result array (G(t) or MSD) dimensions are set based on EQ_calc
                     res = np.zeros(shape=(chain.QN.shape[0],arrayLength+1,1),dtype=float) #initialize result array (stress or CoM) to always hold 250 stress values per chain
@@ -484,9 +480,10 @@ class FSM_LINEAR(object):
                         #calculate probabilities for entangled strand of a chain (create, destroy, or shuffle)
                         ensemble_kernel.calc_strand_prob[dimGrid, dimBlock](d_Z,d_QN,d_flow,d_tdt,d_kappa,d_tau_CD,d_shift_probs,
                                                                               d_CDflag,d_CD_create_prefact,d_beta,d_NK)
-                        
-                        #calculate probabilities for chain ends
+
                         ensemble_kernel.calc_chainends_prob[blockspergrid, threadsperblock](d_Z, d_QN, d_shift_probs, d_CDflag, d_CD_create_prefact, d_beta, d_NK)
+
+
 
                         #control chain time and stress calculation
                         if self.correlator =='munch' and not self.flow and not self.turn_flow_off:
@@ -520,7 +517,6 @@ class FSM_LINEAR(object):
                                                                                             d_tau_CD_used_CD,d_tau_CD_gauss_rand_SD,
                                                                                             d_tau_CD_gauss_rand_CD)
                         
-
                         #update step counter for arrays and array positions
                         self.step_count+=1
                     
@@ -557,7 +553,7 @@ class FSM_LINEAR(object):
 
                         #if all reach_flags are 1, sum should equal number of chains and all chains are synced
                         reach_flag_all = (sum_reach_flags == int(self.input_data['Nchains'])) 
-
+                       
                         #update progress bar based on chain times
                         if (self.step_count==0):
                             check_time = d_chain_time.copy_to_host()

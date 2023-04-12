@@ -660,7 +660,6 @@ def apply_step_kernel(Z, QN, QN_first, QN_create_SDCD, chain_time, time_compensa
     jumpType = int(found_shift[i])
     
     if jumpType == 4 or jumpType == 6:
-
         for j in range(1,tz+1):
             for m in range(0,4):
                 QN_create_SDCD[i,j,m] = QN[i,j-1,m]
@@ -686,17 +685,16 @@ def apply_step_kernel(Z, QN, QN_first, QN_create_SDCD, chain_time, time_compensa
     if jumpType == 0 or jumpType == 1:
         apply_shuffle(i, jumpIdx, jumpType, QN)
 
-    elif jumpType == 2 or jumpType == 5:
+    if jumpType == 2 or jumpType == 5:
         apply_destroy(i, jumpIdx, jumpType, QN, QN_first, Z, t_cr, tau_CD, f_t, chain_time)
         
-    elif jumpType == 3 or jumpType == 6:
+    if jumpType == 3 or jumpType == 6:
         apply_create_SD(i, jumpIdx, jumpType, QN, QN_first, QN_create_SDCD[i], Z, t_cr, new_t_cr[i], tau_CD, new_tau_CD[i], chain_time, tau_CD_used_SD, tau_CD_gauss_rand_SD)
 
-    elif jumpType == 4:
+    if jumpType == 4:
         apply_create_CD(i, jumpIdx, QN, QN_first, QN_create_SDCD[i], Z, t_cr, new_t_cr[i], tau_CD, new_tau_CD[i], tau_CD_used_CD, tau_CD_gauss_rand_CD, add_rand[i])
         
-    else:
-        return
+    return
     
 
 
@@ -723,8 +721,7 @@ def apply_destroy(chainIdx, jumpIdx, jumpType, QN, QN_first, Z, t_cr, tau_CD, f_
     if cr_time != 0:
         f_t[chainIdx] = math.log10(chain_time[chainIdx]- cr_time) + 10
         
-        
-    if jumpIdx == 0:
+    if jumpIdx == 0 and jumpType == 5:
         #destroy entanglement at beginning of chain
         
         #update change to first entanglement location
@@ -732,8 +729,8 @@ def apply_destroy(chainIdx, jumpIdx, jumpType, QN, QN_first, Z, t_cr, tau_CD, f_
             QN_first[chainIdx,k] += QN[chainIdx,jumpIdx+1,k]
             
         #destroy first strand and set N
-        QN[chainIdx,jumpIdx,3] = QN[chainIdx,jumpIdx,3] + QN[chainIdx,jumpIdx+1,3]
         QN[chainIdx,jumpIdx,0] = QN[chainIdx,jumpIdx,1] = QN[chainIdx,jumpIdx,2] = 0.0
+        QN[chainIdx,jumpIdx,3] += QN[chainIdx,jumpIdx+1,3]
 
         t_cr[chainIdx,jumpIdx] = t_cr[chainIdx,jumpIdx+1]
         tau_CD[chainIdx,jumpIdx] = tau_CD[chainIdx,jumpIdx+1]
@@ -746,13 +743,10 @@ def apply_destroy(chainIdx, jumpIdx, jumpType, QN, QN_first, Z, t_cr, tau_CD, f_
             t_cr[chainIdx,threadIdx] = t_cr[chainIdx,threadIdx+1]
             tau_CD[chainIdx,threadIdx] = tau_CD[chainIdx,threadIdx+1]
         
-        #set previous free strand at end of chain to 0s
-        QN[chainIdx,tz-1,0] = QN[chainIdx,tz-1,1] = QN[chainIdx,tz-1,2] = QN[chainIdx,tz-1,3] = 0.0
-        
+        QN[chainIdx,tz-1,0] = QN[chainIdx,tz-1,1] = QN[chainIdx,tz-1,2] = QN[chainIdx,tz-1,3] = 0.0 
 
-        return 
-    
-    elif jumpIdx == tz-2:
+
+    elif (jumpIdx == tz-2 and jumpType==5):
         #destroy entanglement at end of chain
         
         QN[chainIdx,jumpIdx,3] = QN[chainIdx,jumpIdx,3] + QN[chainIdx,jumpIdx+1,3]
@@ -766,11 +760,9 @@ def apply_destroy(chainIdx, jumpIdx, jumpType, QN, QN_first, Z, t_cr, tau_CD, f_
 
         t_cr[chainIdx,jumpIdx+1] = 0.0
         tau_CD[chainIdx,jumpIdx+1] = 0.0
-        
-        return
-            
-    else:
-        
+
+    if jumpType == 2: 
+
         #destroy entanglement at jumpIdx
         for m in range(0,4):
             QN[chainIdx,jumpIdx,m] = QN[chainIdx,jumpIdx,m] + QN[chainIdx,jumpIdx+1,m]
@@ -787,9 +779,9 @@ def apply_destroy(chainIdx, jumpIdx, jumpType, QN, QN_first, Z, t_cr, tau_CD, f_
             tau_CD[chainIdx,threadIdx] = tau_CD[chainIdx,threadIdx+1]
         
         #set last strand in old array to 0s
-        QN[chainIdx,tz-1,0] = QN[chainIdx,tz-1,1] = QN[chainIdx,tz-1,2] = QN[chainIdx,tz-1,3] = 0.0
-            
-        return 
+        QN[chainIdx,tz-1,0] = QN[chainIdx,tz-1,1] = QN[chainIdx,tz-1,2] = QN[chainIdx,tz-1,3] = 0.0  
+    
+    return 
 
 
 @cuda.jit(device=True)

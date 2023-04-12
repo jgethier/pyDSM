@@ -63,7 +63,7 @@ class ensemble_chains(object):
                 p = rng.uniform(0.0,1.0)
                 Ntmp = 0
                 sumres = 0.0
-                while (p>=sumres) and ((Ntmp+1) != (A-i+2)):
+                while (p>=sumres) and ((Ntmp) != (A-i+2)):
                     Ntmp+=1
                     sumres += self.ratio(A, Ntmp, i)
                 tN[i-1] = Ntmp

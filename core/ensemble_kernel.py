@@ -721,7 +721,7 @@ def apply_destroy(chainIdx, jumpIdx, jumpType, QN, QN_first, Z, t_cr, tau_CD, f_
     if cr_time != 0:
         f_t[chainIdx] = math.log10(chain_time[chainIdx]- cr_time) + 10
         
-    if jumpIdx == 0 and jumpType == 5:
+    if jumpIdx == 0:
         #destroy entanglement at beginning of chain
         
         #update change to first entanglement location
@@ -746,7 +746,7 @@ def apply_destroy(chainIdx, jumpIdx, jumpType, QN, QN_first, Z, t_cr, tau_CD, f_
         QN[chainIdx,tz-1,0] = QN[chainIdx,tz-1,1] = QN[chainIdx,tz-1,2] = QN[chainIdx,tz-1,3] = 0.0 
 
 
-    elif (jumpIdx == tz-2 and jumpType==5):
+    elif jumpIdx == tz-2:
         #destroy entanglement at end of chain
         
         QN[chainIdx,jumpIdx,3] = QN[chainIdx,jumpIdx,3] + QN[chainIdx,jumpIdx+1,3]
@@ -761,7 +761,7 @@ def apply_destroy(chainIdx, jumpIdx, jumpType, QN, QN_first, Z, t_cr, tau_CD, f_
         t_cr[chainIdx,jumpIdx+1] = 0.0
         tau_CD[chainIdx,jumpIdx+1] = 0.0
 
-    if jumpType == 2: 
+    else: 
 
         #destroy entanglement at jumpIdx
         for m in range(0,4):

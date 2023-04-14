@@ -407,10 +407,9 @@ class FSM_LINEAR(object):
                         count+=1
                         corr_time.append(j/(1.0/self.input_data['tau_K']))
             for i in range(num_time_syncs,S_corr):
-                if p*m*g-int(i/m**(S_corr-1))>4:
-                    for j in range(p*m**i,p*m**(i+1),m**i):
-                        count+=1
-                        corr_time.append(j/(1.0/self.input_data['tau_K']))
+                for j in range(p*m**i,p*m**(i+1),m**i):
+                    count+=1
+                    corr_time.append(j/(1.0/self.input_data['tau_K']))
 
             data_corr = np.zeros(shape=(self.input_data['Nchains'],count,2),dtype=float) #hold average chain stress/com correlations 
             corr_array = np.zeros(shape=(self.input_data['Nchains'],p*g*m),dtype=float) #array to store correlation values for averaging each chain inside kernel
@@ -598,8 +597,7 @@ class FSM_LINEAR(object):
         if self.correlator=='munch' and not self.flow:
             #finish last few correlations
             for i in range(num_time_syncs,S_corr):
-                if p*m*g-int(i/m**(S_corr-1))>4:
-                    correlation.calc_corr[blockspergrid,threadsperblock](d_res,d_calc_type,num_time_syncs,i,d_data_corr,d_corr_array,d_corr_index)
+                correlation.calc_corr[blockspergrid,threadsperblock](d_res,d_calc_type,num_time_syncs,i,d_data_corr,d_corr_array,d_corr_index)
 
         #SIMULATION ENDS---------------------------------------------------------------------------------------------------------------------------
 

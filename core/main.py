@@ -319,10 +319,10 @@ class FSM_LINEAR(object):
                 res = np.zeros(shape=(chain.QN.shape[0],250,4),dtype=float) 
             else:
                 S_corr= math.floor(np.log(dataLength/p)/np.log(m)) #number of correlator levels
-                if dataLength < 1024: #max result array size of 10000
+                if dataLength < 2048: #max result array size of 10000
                     arrayLength = dataLength
                 else:
-                    arrayLength = 1024
+                    arrayLength = 2048
                 g = math.floor(arrayLength/(p*m))
                 num_time_syncs=int(math.floor(np.log(dataLength/(p*g))/np.log(m)))
                 arrayLength = p*g*m

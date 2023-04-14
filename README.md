@@ -9,17 +9,33 @@
 ### Installation:
 
 <br>
+It is recommended to use Anaconda (or Miniconda) to install the required packages and dependencies. Installation instructions can be found here: https://docs.conda.io/en/latest/miniconda.html 
 
-(1) Create anaconda environment with dependencies:
+Open Anaconda Prompt (Windows) or a terminal window (Linux or MacOS) and navigate to the pyDSM directory:
+```
+cd /path/to/pyDSM
+```
+
+(1) Create a conda environment:
 
 ```
-conda create env --file environment.yml
+conda create -n pydsm-env python=3.10
 ```
 
 (2) Activate conda environment:
 
 ```
 conda activate pydsm-env
+```
+
+(3) Install cudatoolkit and pip:
+```
+conda install cudatoolkit pip
+```
+
+(4) Install PyPI packages:
+```
+pip install -r requirements.txt
 ```
 
 <br>
@@ -45,6 +61,8 @@ Example:
 ```
 python gpu_dsm.py 1
 ```
+
+This will append "_1" to the end of the result files.
 
 <br>
 

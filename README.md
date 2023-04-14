@@ -9,9 +9,10 @@
 ### Installation:
 
 <br>
-It is recommended to use Anaconda (or Miniconda) to install the required packages and dependencies. Installation instructions for Miniconda (recommended) can be found here: https://docs.conda.io/en/latest/miniconda.html <br/>
-<br\>
-<br\>
+It is recommended to use Anaconda (or Miniconda) to install the required packages and dependencies. Installation instructions for Miniconda (recommended) can be found here: https://docs.conda.io/en/latest/miniconda.html
+
+<br>
+
 Open Anaconda Prompt (Windows) or a terminal window (Linux or MacOS) and navigate to the pyDSM directory:
 ```
 cd /path/to/pyDSM

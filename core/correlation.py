@@ -99,14 +99,14 @@ def coarse_result_array(data,g,calc_type):
     return
 
 @cuda.jit
-def calc_corr(rawdata, calc_type, num_time_syncs, corrLevel, data_corr, corr_array, array_index):
+def calc_corr(rawdata, calc_type, num_time_syncs, corrLevel, data_corr, corr_array, array_index, last_index, time_res, sim_time):
     
     i = cuda.blockIdx.x*cuda.blockDim.x + cuda.threadIdx.x #chain index
     
     if i >= data_corr.shape[0]:
         return
     
-    data = rawdata[i,:,:] #raw data for chain i
+    data = rawdata[i,0:last_index,:] #raw data for chain i
     corr = corr_array[i,:] #store correlation values for time t and t+lag for chain i
 
     if corrLevel == 0: #if first correlator level
@@ -116,12 +116,13 @@ def calc_corr(rawdata, calc_type, num_time_syncs, corrLevel, data_corr, corr_arr
             corr_block(i, data, time_lag, data_corr, array_index[i], corr, calc_type[0]) #get the average correlation and error for time lag
     else:
         for j in range(p*m**corrLevel,p*m**(corrLevel+1),m**corrLevel):
-            array_index[i] += 1
-            if corrLevel >= num_time_syncs: #if correlator is above last time sync
-                time_lag = int(j/m**(num_time_syncs-1))
-            else:
-                time_lag = int(j/m**corrLevel)
-            corr_block(i, data, time_lag, data_corr, array_index[i], corr, calc_type[0]) #get the average correlation and error for time lag
+            if j*time_res[0] <= sim_time:
+                array_index[i] += 1
+                if corrLevel >= num_time_syncs: #if correlator is above last time sync
+                    time_lag = int(j/m**(num_time_syncs-1))
+                else:
+                    time_lag = int(j/m**corrLevel)
+                corr_block(i, data, time_lag, data_corr, array_index[i], corr, calc_type[0]) #get the average correlation and error for time lag
     return
 
 

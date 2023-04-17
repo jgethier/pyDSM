@@ -114,15 +114,13 @@ def calc_corr(rawdata, calc_type, num_time_syncs, corrLevel, data_corr, corr_arr
             array_index[i] += 1
             time_lag = j
             corr_block(i, data, time_lag, data_corr, array_index[i], corr, calc_type[0]) #get the average correlation and error for time lag
-    elif corrLevel >= num_time_syncs: #if last correlator level
-        for j in range(p*m**corrLevel,p*m**(corrLevel+1),m**corrLevel):
-            array_index[i] += 1
-            time_lag = int(j/m**(num_time_syncs-1))
-            corr_block(i, data, time_lag, data_corr, array_index[i], corr, calc_type[0]) #get the average correlation and error for time lag
     else:
         for j in range(p*m**corrLevel,p*m**(corrLevel+1),m**corrLevel):
             array_index[i] += 1
-            time_lag = int(j/m**corrLevel)
+            if corrLevel >= num_time_syncs: #if correlator is above last time sync
+                time_lag = int(j/m**(num_time_syncs-1))
+            else:
+                time_lag = int(j/m**corrLevel)
             corr_block(i, data, time_lag, data_corr, array_index[i], corr, calc_type[0]) #get the average correlation and error for time lag
     return
 

@@ -449,12 +449,13 @@ class FSM_LINEAR(object):
                         if self.flow:
                             next_sync_time = (x_sync+1)*self.input_data['tau_K']
                         else:
-                            correlation.coarse_result_array[blockspergrid,threadsperblock](d_res,g,d_calc_type) #keep half of result array values for block transformation
-                            if x_sync == (num_time_syncs-1):
-                                next_sync_time = self.input_data['sim_time'] - p*g*m**(x_sync)*self.input_data['tau_K']
-                                last_index = int(math.floor((self.input_data['sim_time'])/self.input_data['tau_K'])/(m**(num_time_syncs-1)))
-                            else:
-                                next_sync_time = (p*g*m**(x_sync+1) - p*g*m**(x_sync))*self.input_data['tau_K']
+                            if not self.turn_flow_off:
+                                correlation.coarse_result_array[blockspergrid,threadsperblock](d_res,g,d_calc_type) #keep half of result array values for block transformation
+                                if x_sync == (num_time_syncs-1):
+                                    next_sync_time = self.input_data['sim_time'] - p*g*m**(x_sync)*self.input_data['tau_K']
+                                    last_index = int(math.floor((self.input_data['sim_time'])/self.input_data['tau_K'])/(m**(num_time_syncs-1)))
+                                else:
+                                    next_sync_time = (p*g*m**(x_sync+1) - p*g*m**(x_sync))*self.input_data['tau_K']
                     
                     #if simulating shear flow and flow time is less than total simulation time, turn off flow when flow time is reached
                     if self.flow and self.turn_flow_off:

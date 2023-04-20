@@ -605,7 +605,7 @@ class FSM_LINEAR(object):
                         #run the block transformation and calculate correlation with error
                         correlation.calc_corr[blockspergrid,threadsperblock](d_res,d_calc_type,num_time_syncs,x_sync,d_data_corr,d_corr_array,d_corr_index,last_index, d_time_resolution, self.input_data['sim_time'])
         
-        if self.correlator=='munch' and not self.flow:
+        if self.correlator=='munch' and not self.flow and not self.turn_flow_off:
             #finish last few correlations
             for i in range(num_time_syncs,S_corr):
                 correlation.calc_corr[blockspergrid,threadsperblock](d_res,d_calc_type,num_time_syncs,i,d_data_corr,d_corr_array,d_corr_index,last_index,d_time_resolution, self.input_data['sim_time'])

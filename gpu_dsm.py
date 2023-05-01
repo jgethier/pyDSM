@@ -9,7 +9,7 @@ def gpu_dsm():
                     help='An integer for the simulation ID.')
 	parser.add_argument('-d', metavar='device_num', type=int, nargs='?',default=0,
                     help='An integer for the device ID.')
-	parser.add_argument('-c', type=str, nargs='?',default='munch',choices=['otf','munch'],
+	parser.add_argument('-c', type=str, nargs='?',default='munch',choices=['rsvl','munch'],
                     help='Specify which correlator to use (otf or munch).')
 	parser.add_argument('-o', metavar='path/to/output/',type=str, nargs='?',default='./DSM_results',
 					help='Specify output directory.')

@@ -313,7 +313,7 @@ class FSM_LINEAR(object):
         
         else: #if not flow, set chain sync times based on data array length and initialize result array
             max_sync_time = self.input_data['sim_time']
-            if self.correlator=='otf':
+            if self.correlator=='rsvl':
                 S_corr = math.ceil(np.log(dataLength/p)/np.log(m)) + 1 #number of correlator levels
                 num_time_syncs = 1
                 res = np.zeros(shape=(chain.QN.shape[0],250,4),dtype=float) 
@@ -333,7 +333,7 @@ class FSM_LINEAR(object):
                 elif calc_type == 2:
                     res = np.zeros(shape=(chain.QN.shape[0],arrayLength+1,3),dtype=float) 
         
-        if self.correlator=='otf':
+        if self.correlator=='rsvl':
             print("Using on the fly correlator for equilibrium calculation. Uncertainty in the correlation values will not be reported.")
             #initialize arrays for correlator
             D_array = np.zeros(shape=(chain.QN.shape[0],S_corr,p,3),dtype=float)
@@ -438,7 +438,7 @@ class FSM_LINEAR(object):
                 for x_sync in range(0,num_time_syncs):
 
                     if x_sync == 0:
-                        if self.correlator=='otf' or num_time_syncs==1:
+                        if self.correlator=='rsvl' or num_time_syncs==1:
                             next_sync_time = self.input_data['sim_time']
                         else:
                             if self.flow:
@@ -544,7 +544,7 @@ class FSM_LINEAR(object):
                            
                             gpu_rand.refill_uniform_rand[blockspergrid,threadsperblock](self.rng_states, self.input_data['Nchains'], d_rand_used, d_uniform_rand)
                         
-                            if (self.correlator=='otf') and (not self.flow) and (not self.turn_flow_off):
+                            if (self.correlator=='rsvl') and (not self.flow) and (not self.turn_flow_off):
                                 correlation.update_correlator[blockspergrid,threadsperblock](250,d_res,d_D,d_D_shift,d_C,d_N,d_A,d_M,d_calc_type)
                             
                             self.step_count = 0
@@ -564,7 +564,7 @@ class FSM_LINEAR(object):
                         if (self.step_count==0):
                             check_time = d_chain_time.copy_to_host()
                             sum_time = 0
-                            if self.correlator == 'otf' or self.flow or self.turn_flow_off:
+                            if self.correlator == 'rsvl' or self.flow or self.turn_flow_off:
                                 if self.turn_flow_off and not self.flow:
                                     sum_time = int(np.sum(np.floor(check_time+self.input_data['flow_time'])))
                                 else:
@@ -637,7 +637,7 @@ class FSM_LINEAR(object):
         
         
         if not self.flow and not self.turn_flow_off:
-            if self.correlator == 'otf':
+            if self.correlator == 'rsvl':
                 #get OTF correlator results
                 C_array = d_C.copy_to_host()
                 N_array = d_N.copy_to_host()
@@ -672,7 +672,7 @@ class FSM_LINEAR(object):
             if calc_type == 1:
                 #make combined result array and write to file
                 with open(os.path.join(self.output_dir,'Gt_result_%d.txt'%self.sim_ID), "w") as f:
-                    if self.correlator=='otf':
+                    if self.correlator=='rsvl':
                         f.write('Time, G(t)\n')
                         for m in range(0,len(corr_time)):
                             f.write("%d, %.4f \n"%(corr_time[m],corr_aver[m]))
@@ -686,7 +686,7 @@ class FSM_LINEAR(object):
             if calc_type == 2:
                 #make combined result array and write to file
                 with open(os.path.join(self.output_dir,'MSD_result_%d.txt'%self.sim_ID), "w") as f:
-                    if self.correlator=='otf':
+                    if self.correlator=='rsvl':
                         f.write('Time, MSD\n')
                         for m in range(0,len(corr_time)):
                             f.write("%d, %.4f \n"%(corr_time[m],corr_aver[m]))

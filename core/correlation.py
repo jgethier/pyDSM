@@ -81,36 +81,48 @@ def update_correlator(n,result_array,D,D_shift,C,N,A,M,corrtype):
                 M[i,corrLevel] = 0
     return 
 
+@cuda.jit
+def coarse_result_array(data,g,calc_type):
+
+    i = cuda.blockIdx.x*cuda.blockDim.x + cuda.threadIdx.x #chain index
+    
+    if i >= data.shape[0]:
+        return
+
+    for j in range(1,p*g+1):
+        if calc_type[0] == 1:
+            data[i,j,0]=data[i,j*m,0]
+        if calc_type[0] == 2:
+            data[i,j,0]=data[i,j*m,0]
+            data[i,j,1]=data[i,j*m,1]
+            data[i,j,2]=data[i,j*m,2]
+    return
 
 @cuda.jit
-def calc_corr(rawdata, calc_type, S_corr, data_corr, corr_array):
+def calc_corr(rawdata, calc_type, num_time_syncs, corrLevel, data_corr, corr_array, array_index, last_index, time_res, sim_time):
     
     i = cuda.blockIdx.x*cuda.blockDim.x + cuda.threadIdx.x #chain index
     
     if i >= data_corr.shape[0]:
         return
     
-    data = rawdata[0:,0:,i] #raw data for chain i
-    corr = corr_array[0:,i] #store correlation values for time t and t+lag for chain i
-    
-    array_index = -1 #initialize array indexing for final results
-    for corrLevel in range(0,S_corr):
-        if corrLevel == 0:
-            for j in range(0,p):
-                array_index+=1
-                time_lag = j*(m**corrLevel)
-                if time_lag >= data.shape[1]:
-                    break
+    data = rawdata[i,0:last_index,:] #raw data for chain i
+    corr = corr_array[i,:] #store correlation values for time t and t+lag for chain i
+
+    if corrLevel == 0: #if first correlator level
+        for j in range(0,p*m):
+            array_index[i] += 1
+            time_lag = j
+            corr_block(i, data, time_lag, data_corr, array_index[i], corr, calc_type[0]) #get the average correlation and error for time lag
+    else:
+        for j in range(p*m**corrLevel,p*m**(corrLevel+1),m**corrLevel):
+            if j*time_res[0] <= sim_time:
+                array_index[i] += 1
+                if corrLevel >= num_time_syncs: #if correlator is above last time sync
+                    time_lag = int(j/m**(num_time_syncs-1))
                 else:
-                    corr_block(i, data, time_lag, data_corr, array_index, corr, calc_type) #get the average correlation and error for time lag
-        else:
-            for j in range(int(p/m),p):
-                array_index += 1
-                time_lag = j*(m**corrLevel)
-                if time_lag >= data.shape[1]:
-                    break
-                else:
-                    corr_block(i, data, time_lag, data_corr, array_index, corr, calc_type) #get the average correlation and error for time lag
+                    time_lag = int(j/m**corrLevel)
+                corr_block(i, data, time_lag, data_corr, array_index[i], corr, calc_type[0]) #get the average correlation and error for time lag
     return
 
 
@@ -118,15 +130,15 @@ def calc_corr(rawdata, calc_type, S_corr, data_corr, corr_array):
 def corr_block(chainIdx, chainData, tj, corr, arr_index, xV, calc_type):
     
     #number of correlations
-    n = int(len(chainData[0,0:])-tj)
-
+    n = int(len(chainData[:,0])-tj)
+    
     #begin correlation averaging for timelag tj
     xav = 0
     for r in range(0,n):
         if calc_type==1:
-            xV[r] = chainData[0,r]*chainData[0,int(r+tj)] #correlation between time and time + lag
+            xV[r] = chainData[r,0]*chainData[int(r+tj),0] #correlation between time and time + lag
         elif calc_type == 2:
-            xV[r] = (chainData[0,r]-chainData[0,int(r+tj)])**2+(chainData[1,r]-chainData[1,int(r+tj)])**2+(chainData[2,r]-chainData[2,int(r+tj)])**2
+            xV[r] = (chainData[r,0]-chainData[int(r+tj),0])**2+(chainData[r,1]-chainData[int(r+tj),1])**2+(chainData[r,2]-chainData[int(r+tj),2])**2
         xav+=xV[r]/n  #calculate average
     c0=(xV[0]-xav)**2   
     for r in range(1,n):

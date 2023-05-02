@@ -9,17 +9,35 @@
 ### Installation:
 
 <br>
+It is recommended to use Anaconda (or Miniconda) to install the required packages and dependencies. Installation instructions for Miniconda (recommended) can be found here: https://docs.conda.io/en/latest/miniconda.html
 
-(1) Create anaconda environment with dependencies:
+<br>
+
+Open Anaconda Prompt (Windows) or a terminal window (Linux or MacOS) and navigate to the pyDSM directory:
+```
+cd /path/to/pyDSM
+```
+
+(1) Create a conda environment:
 
 ```
-conda create env --file environment.yml
+conda create -n pydsm-env python=3.10
 ```
 
 (2) Activate conda environment:
 
 ```
 conda activate pydsm-env
+```
+
+(3) Install cudatoolkit and pip:
+```
+conda install cudatoolkit pip
+```
+
+(4) Install PyPI packages:
+```
+pip install -r requirements.txt
 ```
 
 <br>
@@ -46,6 +64,8 @@ Example:
 python gpu_dsm.py 1
 ```
 
+This will append "_1" to the end of the result files.
+
 <br>
 
 FLAG ARGUMENTS:
@@ -53,7 +73,7 @@ FLAG ARGUMENTS:
 ```
 -h, --help - show help message and exit
 -d [device_num] - if multiple GPUs are present, select device number
--c [otf] - force simulation to use on-the-fly (otf) correlator, but correlation errors will not be reported
+-c [rsvl, munch] - force simulation to use a multiple-tau correlator (rsvl), but correlation errors will not be reported
 -o [output_dir] - specify output directory
 --fit - a flag to turn on G(t) fitting after simulation is done. 
 --distr - a flag to save initial and final Q, Lpp, and Z distributions to file.

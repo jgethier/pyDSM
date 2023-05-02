@@ -461,9 +461,78 @@ def choose_step_kernel(Z,shift_probs,sum_W_sorted,uniform_rand,rand_used,found_i
 
     return
 
+@cuda.jit
+def time_control_munch_kernel(Z,QN,QN_first,NK,chain_time,tdt,result,calc_type,reach_flag,next_sync_time,write_time,time_res,corrLevel,p,g,m):
+    
+    i = cuda.blockIdx.x*cuda.blockDim.x + cuda.threadIdx.x #chain index
+    
+    if i >= QN.shape[0]:
+        return
+            
+    if reach_flag[i] != 0:
+        return
+
+    if (chain_time[i] >= next_sync_time) and chain_time[i] <= (write_time[i]*time_res[0]*m**corrLevel):
+        
+        #if sync time is reached and stress was recorded, set reach flag to 1
+        reach_flag[i] = 1
+        tdt[i] = 0.0
+        write_time[i] = 1
+        chain_time[i] -= next_sync_time
+        
+        return
+        
+    if (chain_time[i] > write_time[i]*time_res[0]*m**corrLevel): #if chain time reaches next time to record stress/CoM (every time_res)
+            
+        tz = int(Z[i])
+        
+        if corrLevel == 0:
+            arr_index = int(math.floor(chain_time[i]/time_res[0])/(m**corrLevel))
+        else:
+            arr_index = int(math.floor((chain_time[i]+p*g*m**corrLevel*time_res[0])/time_res[0])/(m**corrLevel))
+
+        if calc_type[0] == 1:
+            stress_xy = stress_yz = stress_xz = 0.0 
+
+            for j in range(0,tz):
+                stress_xy -= (3.0*QN[i,j,0]*QN[i,j,1] / QN[i,j,3]) #tau_xy
+                stress_yz -= (3.0*QN[i,j,1]*QN[i,j,2] / QN[i,j,3]) #tau_yz
+                stress_xz -= (3.0*QN[i,j,0]*QN[i,j,2] / QN[i,j,3]) #tau_xz
+            
+            result[i,arr_index,0] = stress_xy
+        
+        elif calc_type[0] == 2:
+            QN_1 = QN_first[i,:] #need fixed frame of reference, choosing first entanglement which is tracked during simulation
+            chain_com = cuda.local.array(3,float32)
+            temp = cuda.local.array(3,float32)
+            prev_QN = cuda.local.array(3,float32)
+            
+            chain_com[0] = chain_com[1] = chain_com[2] = 0.0
+            temp[0] = temp[1] = temp[2] = 0.0
+            prev_QN[0] = prev_QN[1] = prev_QN[2] = 0.0
+            
+            for j in range(0,tz):
+                QN_i = QN[i,j,:]
+                term = cuda.local.array(3,float32)
+                term[0] = term[1] = term[2] = 0.0
+                for k in range(0,3):
+                    temp[k] += prev_QN[k]
+                    term[k] += temp[k]
+                    term[k] += QN_i[k]/2.0
+                    chain_com[k] += term[k] * QN_i[3] / NK[0]
+                    prev_QN[k] = QN_i[k]
+                
+            result[i,arr_index,0] = chain_com[0] + QN_1[0]
+            result[i,arr_index,1] = chain_com[1] + QN_1[1]
+            result[i,arr_index,2] = chain_com[2] + QN_1[2]
+    
+        write_time[i]+=1
+    
+    return 
+
 
 @cuda.jit
-def time_control_kernel(Z,QN,new_Q,QN_first,NK,chain_time,tdt,result,calc_type,flow,flow_off,reach_flag,next_sync_time,max_sync_time,write_time,time_resolution,result_index,postprocess):
+def time_control_kernel(Z,QN,new_Q,QN_first,NK,chain_time,tdt,result,calc_type,flow,flow_off,reach_flag,next_sync_time,max_sync_time,write_time,time_res,result_index):
     
     
     i = cuda.blockIdx.x*cuda.blockDim.x + cuda.threadIdx.x #chain index
@@ -471,13 +540,13 @@ def time_control_kernel(Z,QN,new_Q,QN_first,NK,chain_time,tdt,result,calc_type,f
     if i >= QN.shape[0]:
         return
 
-    if not postprocess:
+    if not bool(flow[0]) and not bool(flow_off[0]):
         result[i,result_index,0] = result[i,result_index,1] = result[i,result_index,2] = result[i,result_index,3] = 0.0
             
     if reach_flag[i] != 0:
         return
 
-    if (chain_time[i] >= next_sync_time) and chain_time[i] <= (write_time[i]*time_resolution[0]):
+    if (chain_time[i] >= next_sync_time) and chain_time[i] <= (write_time[i]*time_res[0]):
         
         #if sync time is reached and stress was recorded, set reach flag to 1
         reach_flag[i] = 1
@@ -485,19 +554,13 @@ def time_control_kernel(Z,QN,new_Q,QN_first,NK,chain_time,tdt,result,calc_type,f
         
         return
         
-    if (chain_time[i] > write_time[i]*time_resolution[0]): #if chain time reaches next time to record stress/CoM (every time_resolution)
+    if (chain_time[i] > write_time[i]*time_res[0]): #if chain time reaches next time to record stress/CoM (every time_res)
         
         if not bool(flow[0]) and not bool(flow_off[0]):
             
             tz = int(Z[i])
             
-            if postprocess:
-                if int((chain_time[i]%max_sync_time)/time_resolution[0])==0 and write_time[i] != 0:
-                    arr_index = int(max_sync_time/time_resolution[0])
-                else:
-                    arr_index = int((chain_time[i]%max_sync_time)/time_resolution[0]) 
-            else:
-                arr_index = result_index 
+            arr_index = result_index 
 
             if calc_type[0] == 1:
                 stress_xy = stress_yz = stress_xz = 0.0 
@@ -508,10 +571,9 @@ def time_control_kernel(Z,QN,new_Q,QN_first,NK,chain_time,tdt,result,calc_type,f
                     stress_xz -= (3.0*QN[i,j,0]*QN[i,j,2] / QN[i,j,3]) #tau_xz
                 
                 result[i,arr_index,0] = stress_xy
-                if not postprocess:
-                    result[i,arr_index,1] = stress_yz
-                    result[i,arr_index,2] = stress_xz
-                    result[i,arr_index,3] = 1.0
+                result[i,arr_index,1] = stress_yz
+                result[i,arr_index,2] = stress_xz
+                result[i,arr_index,3] = 1.0
             
             elif calc_type[0] == 2:
                 QN_1 = QN_first[i,:] #need fixed frame of reference, choosing first entanglement which is tracked during simulation
@@ -537,19 +599,17 @@ def time_control_kernel(Z,QN,new_Q,QN_first,NK,chain_time,tdt,result,calc_type,f
                 result[i,arr_index,0] = chain_com[0] + QN_1[0]
                 result[i,arr_index,1] = chain_com[1] + QN_1[1]
                 result[i,arr_index,2] = chain_com[2] + QN_1[2]
-                if not postprocess:
-                    result[i,arr_index,3] = 1.0
+                result[i,arr_index,3] = 1.0
         
         if not bool(flow[0]) and bool(flow_off[0]): #track equilibrium variables after cessation of flow
             
             tz = int(Z[i])
 
-            if int((chain_time[i]%max_sync_time)/time_resolution[0])==0 and write_time[i] != 0:
-                arr_index = int(max_sync_time/time_resolution[0])
+            if int((chain_time[i]%max_sync_time)/time_res[0])==0 and write_time[i] != 0:
+                arr_index = int(max_sync_time/time_res[0])
             else:
-                arr_index = int((chain_time[i]%max_sync_time)/time_resolution[0])
+                arr_index = int((chain_time[i]%max_sync_time)/time_res[0])
 
-            
             stress_xx = stress_yy = stress_zz = stress_xy = stress_yz = stress_xz = 0.0
             count_new_Q = 0
             for j in range(0,int(Z[i])):
@@ -600,7 +660,6 @@ def apply_step_kernel(Z, QN, QN_first, QN_create_SDCD, chain_time, time_compensa
     jumpType = int(found_shift[i])
     
     if jumpType == 4 or jumpType == 6:
-
         for j in range(1,tz+1):
             for m in range(0,4):
                 QN_create_SDCD[i,j,m] = QN[i,j-1,m]
@@ -626,17 +685,16 @@ def apply_step_kernel(Z, QN, QN_first, QN_create_SDCD, chain_time, time_compensa
     if jumpType == 0 or jumpType == 1:
         apply_shuffle(i, jumpIdx, jumpType, QN)
 
-    elif jumpType == 2 or jumpType == 5:
+    if jumpType == 2 or jumpType == 5:
         apply_destroy(i, jumpIdx, jumpType, QN, QN_first, Z, t_cr, tau_CD, f_t, chain_time)
         
-    elif jumpType == 3 or jumpType == 6:
+    if jumpType == 3 or jumpType == 6:
         apply_create_SD(i, jumpIdx, jumpType, QN, QN_first, QN_create_SDCD[i], Z, t_cr, new_t_cr[i], tau_CD, new_tau_CD[i], chain_time, tau_CD_used_SD, tau_CD_gauss_rand_SD)
 
-    elif jumpType == 4:
+    if jumpType == 4:
         apply_create_CD(i, jumpIdx, QN, QN_first, QN_create_SDCD[i], Z, t_cr, new_t_cr[i], tau_CD, new_tau_CD[i], tau_CD_used_CD, tau_CD_gauss_rand_CD, add_rand[i])
         
-    else:
-        return
+    return
     
 
 
@@ -663,7 +721,6 @@ def apply_destroy(chainIdx, jumpIdx, jumpType, QN, QN_first, Z, t_cr, tau_CD, f_
     if cr_time != 0:
         f_t[chainIdx] = math.log10(chain_time[chainIdx]- cr_time) + 10
         
-        
     if jumpIdx == 0:
         #destroy entanglement at beginning of chain
         
@@ -672,8 +729,8 @@ def apply_destroy(chainIdx, jumpIdx, jumpType, QN, QN_first, Z, t_cr, tau_CD, f_
             QN_first[chainIdx,k] += QN[chainIdx,jumpIdx+1,k]
             
         #destroy first strand and set N
-        QN[chainIdx,jumpIdx,3] = QN[chainIdx,jumpIdx,3] + QN[chainIdx,jumpIdx+1,3]
         QN[chainIdx,jumpIdx,0] = QN[chainIdx,jumpIdx,1] = QN[chainIdx,jumpIdx,2] = 0.0
+        QN[chainIdx,jumpIdx,3] += QN[chainIdx,jumpIdx+1,3]
 
         t_cr[chainIdx,jumpIdx] = t_cr[chainIdx,jumpIdx+1]
         tau_CD[chainIdx,jumpIdx] = tau_CD[chainIdx,jumpIdx+1]
@@ -686,12 +743,9 @@ def apply_destroy(chainIdx, jumpIdx, jumpType, QN, QN_first, Z, t_cr, tau_CD, f_
             t_cr[chainIdx,threadIdx] = t_cr[chainIdx,threadIdx+1]
             tau_CD[chainIdx,threadIdx] = tau_CD[chainIdx,threadIdx+1]
         
-        #set previous free strand at end of chain to 0s
-        QN[chainIdx,tz-1,0] = QN[chainIdx,tz-1,1] = QN[chainIdx,tz-1,2] = QN[chainIdx,tz-1,3] = 0.0
-        
+        QN[chainIdx,tz-1,0] = QN[chainIdx,tz-1,1] = QN[chainIdx,tz-1,2] = QN[chainIdx,tz-1,3] = 0.0 
 
-        return 
-    
+
     elif jumpIdx == tz-2:
         #destroy entanglement at end of chain
         
@@ -706,11 +760,9 @@ def apply_destroy(chainIdx, jumpIdx, jumpType, QN, QN_first, Z, t_cr, tau_CD, f_
 
         t_cr[chainIdx,jumpIdx+1] = 0.0
         tau_CD[chainIdx,jumpIdx+1] = 0.0
-        
-        return
-            
-    else:
-        
+
+    else: 
+
         #destroy entanglement at jumpIdx
         for m in range(0,4):
             QN[chainIdx,jumpIdx,m] = QN[chainIdx,jumpIdx,m] + QN[chainIdx,jumpIdx+1,m]
@@ -727,9 +779,9 @@ def apply_destroy(chainIdx, jumpIdx, jumpType, QN, QN_first, Z, t_cr, tau_CD, f_
             tau_CD[chainIdx,threadIdx] = tau_CD[chainIdx,threadIdx+1]
         
         #set last strand in old array to 0s
-        QN[chainIdx,tz-1,0] = QN[chainIdx,tz-1,1] = QN[chainIdx,tz-1,2] = QN[chainIdx,tz-1,3] = 0.0
-            
-        return 
+        QN[chainIdx,tz-1,0] = QN[chainIdx,tz-1,1] = QN[chainIdx,tz-1,2] = QN[chainIdx,tz-1,3] = 0.0  
+    
+    return 
 
 
 @cuda.jit(device=True)

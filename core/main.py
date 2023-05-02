@@ -9,34 +9,36 @@ from numba.cuda.random import create_xoroshiro128p_states
 from alive_progress import alive_bar 
 import yaml
 import math
-import pickle
 import random as rng
 import GPUtil as GPU
+
 from core.chain import ensemble_chains
 from core.pcd_tau import p_cd, p_cd_linear
 import core.ensemble_kernel as ensemble_kernel
 import core.gpu_random as gpu_rand 
 import core.correlation as correlation
 from core.fit import CURVE_FIT
+import core.fileio as fileio
 
 warnings.filterwarnings('ignore')
 
 class FSM_LINEAR(object):
 
-    def __init__(self,sim_ID,device_ID,output_dir,correlator,fit=False,distr=False,load_file=None,save_file=None):
+    def __init__(self,sim_ID,device_ID,output_dir,correlator,save_rawdata=False,fit=False,distr=False,load_file=None,save_file=None):
         
         #simulation ID from run argument (>>python gpu_dsm sim_ID)
         self.sim_ID = sim_ID
 
-        #determine correlator (on the fly or post-process)
-        if correlator == 'otf':
-            self.postprocess = False
-        else:
-            self.postprocess = True 
+        #determine correlator (on-the-fly or MUnCH)
+        self.correlator = correlator
+
+        #save raw results to file
+        self.postprocess = save_rawdata
 
         #set fit to True if G(t) will be fit 
         self.fit = fit
         
+        #if True, distributions will be saved
         self.distr=distr
         
         #read in input file and parameters
@@ -76,195 +78,14 @@ class FSM_LINEAR(object):
         
         rng.seed(self.seed)
 
-        return
-
-
-    def save_distributions(self,distr,QN,Z):
-        '''
-        Function to save Q distributions to file
-        Inputs: distr - name of distribution (initial or final) 
-                QN - distribution of strand orientations and number of Kuhn steps in cluster
-                Z - number of entanglements in each chain
-        '''
-        Q = []
-        L = []
-        for i in range(0,self.input_data['Nchains']):
-            L_value = 0.0
-            for j in range(1,int(Z[i])-1):
-                x2 = QN[i,j,0]**2
-                y2 = QN[i,j,1]**2
-                z2 = QN[i,j,2]**2
-                Q_value = np.sqrt(x2+y2+z2)
-                L_value += Q_value
-                Q.append(Q_value)
-                
-            L.append(L_value)
-
-        Q_sorted = np.sort(Q)
-        L_sorted = np.sort(L)
-        
-        Q_file = os.path.join(self.output_dir,'distr_Q_%s_%d.txt'%(distr,self.sim_ID))
-        L_file = os.path.join(self.output_dir,'distr_L_%s_%d.txt'%(distr,self.sim_ID))
-        
-        np.savetxt(Q_file, Q_sorted)
-        np.savetxt(L_file, L_sorted)
+        #checks for input data
+        if self.input_data['tau_K'] < 1:
+            print("tau_K must be larger than or equal to 1. Using tau_K = 1.")
+            self.input_data['tau_K'] = 1
+        else:
+            self.input_data['tau_K'] = round(self.input_data['tau_K'])
 
         return
-
-    def write_stress(self,num_sync,time,stress_array):
-        '''
-        Write the stress of all chains in ensemble
-        Inputs: num_sync - sync number for simulation
-                time - simulation time
-                stress_array - array of stress values to write
-        Outputs: stress over time for each chain in stress.txt file
-        '''
-   
-        #if first time sync, need to include 0 and initialize file path
-        if num_sync == 1:
-            if self.flow or self.turn_flow_off:
-                self.stress_output = os.path.join(self.output_dir,'stress_%d.txt'%self.sim_ID)
-            else:
-                self.stress_output = os.path.join(self.output_dir,'stress_%d.dat'%self.sim_ID)
-            self.old_sync_time = 0
-            
-            if self.flow:
-                time_index = 1
-            else:
-                time_index = 0
-        
-        else: #do not include the t=0 spot of array (only used for first time sync)
-            time_index = 1
-        
-        #set time array depending on num_sync
-        time_resolution = self.input_data['tau_K']
-        time_array = np.arange(self.old_sync_time,time+time_resolution/2.0,time_resolution)
-        if not self.flow and self.turn_flow_off:
-            time_array = np.arange(self.old_sync_time,(time+self.input_data['flow_time'])+time_resolution/2.0,time_resolution)
-        time_array = np.reshape(time_array[time_index:],(1,len(time_array[time_index:])))
-        len_array = len(time_array[0])+1
-        
-        #if flow, take average stress tensor over all chains, otherwise write out only tau_xy stress of all chains
-        if self.flow or self.turn_flow_off:
-            if self.flow:
-                stress = np.array([np.mean(stress_array[:,0,i],axis=0) for i in range(0,8)])
-                error = np.array([np.std(stress_array[:,0,i],axis=0)/np.sqrt(self.input_data['Nchains']) for i in range(0,8)])
-                stress = np.reshape(stress,(8,1))
-                error = np.reshape(error,(8,1))
-            else:
-                stress = np.array([np.mean(stress_array[:,:,i],axis=0) for i in range(0,8)])
-                error = np.array([np.std(stress_array[:,:,i],axis=0)/np.sqrt(self.input_data['Nchains']) for i in range(0,8)])
-                stress = np.reshape(stress[:,time_index:len_array],(8,len(stress_array[0,time_index:len_array,0])))
-                error = np.reshape(error[:,time_index:len_array],(8,len(stress_array[0,time_index:len_array,0])))
-            combined = np.hstack((time_array.T, stress.T, error.T))
-        else:
-            stress = np.reshape(stress_array[:,time_index:len_array,0],(self.input_data['Nchains'],len(stress_array[0,time_index:len_array,0])))    
-            combined = np.hstack((time_array.T, stress.T))
-        
-        #write stress to file
-        if num_sync == 1:
-            if self.flow or self.turn_flow_off:
-                with open(self.stress_output,'w') as f:
-                    f.write('time, tau_xx, tau_yy, tau_zz, tau_xy, tau_yz, tau_xz, Z, f_newQ, stderr_xx, stderr_yy, stderr_zz, stderr_xy, stderr_yz, stderr_xz, stderr_Z, stderr_f_newQ\n')
-                    np.savetxt(f, combined, delimiter=',', fmt='%.8f')
-            else:
-                with open(self.stress_output, "wb") as f:
-                   pickle.dump(combined,f)
-        else:
-            if self.flow or self.turn_flow_off:
-                with open(self.stress_output,'a') as f:
-                    np.savetxt(f, combined, delimiter=',', fmt='%.8f')
-            else:
-                with open(self.stress_output, 'ab') as f:
-                    pickle.dump(combined,f)
-        
-        #keeping track of the last simulation time for beginning of next array
-        if not self.flow and self.turn_flow_off:
-            self.old_sync_time = time + self.input_data['flow_time']
-        else:
-            self.old_sync_time = time
-        
-        return 
-
-
-    def write_com(self,num_sync,time,com_array):
-        '''
-        Write the CoM of all chains in ensemble
-        Inputs: num_sync - sync number for simulation
-                time - simulation time
-                com_array - array of center of mass (CoM) values to write
-        Outputs: CoM over time for each chain and dimension (x,y,z) in CoM.txt file
-        '''
-        
-        if num_sync == 1: #if first time sync, need to include 0 and initialize file path
-            self.com_output_x = os.path.join(self.output_dir, 'CoM_%d_x.dat'%self.sim_ID)
-            self.com_output_y = os.path.join(self.output_dir, 'CoM_%d_y.dat'%self.sim_ID)
-            self.com_output_z = os.path.join(self.output_dir, 'CoM_%d_z.dat'%self.sim_ID)
-            self.old_sync_time = 0
-            time_index = 0
-        
-        else:
-            time_index = 1
-        
-        #set time array depending on num_sync
-        time_resolution = self.input_data['tau_K']
-        time_array = np.arange(self.old_sync_time,time+time_resolution/2.0,time_resolution)
-        time_array = np.reshape(time_array[time_index:],(1,len(time_array[time_index:])))
-        len_array = len(time_array[0])+1
-        
-        #reshape arrays
-        com_x = np.reshape(com_array[:,time_index:len_array,0],(self.input_data['Nchains'],len(com_array[0,time_index:len_array,0])))    
-        com_y = np.reshape(com_array[:,time_index:len_array,1],(self.input_data['Nchains'],len(com_array[0,time_index:len_array,1])))    
-        com_z = np.reshape(com_array[:,time_index:len_array,2],(self.input_data['Nchains'],len(com_array[0,time_index:len_array,2])))    
-        
-        #combine time and CoM for each dimension
-        combined_x = np.hstack((time_array.T, com_x.T))
-        combined_y = np.hstack((time_array.T, com_y.T))
-        combined_z = np.hstack((time_array.T, com_z.T))
-        
-        if num_sync == 1: #write data to files and overwrite if file exists
-            with open(self.com_output_x,"wb") as f:
-                pickle.dump(combined_x,f)
-            with open(self.com_output_y,"wb") as f:
-                pickle.dump(combined_y,f)
-            with open(self.com_output_z,"wb") as f:
-                pickle.dump(combined_z,f)
-        else: #append file for num_sync > 1
-            with open(self.com_output_x,"ab") as f:
-                pickle.dump(combined_x,f)
-            with open(self.com_output_y,"ab") as f:
-                pickle.dump(combined_y,f)
-            with open(self.com_output_z,"ab") as f:
-                pickle.dump(combined_z,f)
-        
-        #keeping track of the last simulation time for beginning of next array
-        self.old_sync_time = time
-
-    
-    def load_results(self,filename,block_num,block_size,num_chains):
-        '''
-        Load in part of the binary .dat file into the result array
-        Inputs: filename - filename of the data file
-                block_num - chain block number (total chains split into n blocks of size block_size)
-                num_chains - block_num*block_size
-        Returns: an array of data read from filename
-        '''
-        result_array = []
-        with open(filename,'rb') as f:
-            try:
-                while True:
-                    data = pickle.load(f)
-                    for j in data:
-                        if block_num == 0:
-                            first_idx = 1
-                        else:
-                            first_idx = block_num*block_size + 1
-                        last_idx = num_chains+1
-                        result_array.append(j[first_idx:last_idx])
-            except EOFError:
-                pass
-
-        return result_array
 
 
     def run(self):
@@ -378,7 +199,7 @@ class FSM_LINEAR(object):
             d_kappa = cuda.to_device(np.array(self.input_data['kappa'],dtype=float))
             self.flow = True
             calc_type = 1
-            self.fit = False 
+            self.fit = False  
             if self.input_data['flow_time']>0 and self.input_data['flow_time']<self.input_data['sim_time']:
                 self.turn_flow_off = True
                 new_Q = np.zeros(shape=(chain.QN.shape[0],chain.QN.shape[1]),dtype=int)
@@ -393,54 +214,29 @@ class FSM_LINEAR(object):
             new_Q = np.array([[]])
             d_new_Q = cuda.to_device(new_Q)
             #determine system size for post-processing
-            postprocess = True
             d_kappa = cuda.to_device(np.array(self.input_data['kappa'],dtype=float))
-        
-        postprocess = self.postprocess
 
         #if not flow, check for equilibrium calculation type (G(t) or MSD)
         if not self.flow:
-            block_size = self.input_data['Nchains'] #blocks of chains to be post-processed simultanously
             
             if self.input_data['EQ_calc']=='stress':
                 print("Equilibrium calculation specified: G(t).")
                 calc_type = 1
-                if self.postprocess:
-                    while (8.0*block_size*(self.input_data['sim_time']/self.input_data['tau_K'])/1024/1024)>0.9*self.min_mem: #check for memory limits for post processing calculations 
-                        block_size -= 100
-                        if block_size < 100:
-                            postprocess = False 
-                            break 
                 
             elif self.input_data['EQ_calc']=='msd': #check for memory limits for post processing calculations
                 print("Equilbrium calculation specified: MSD.")
                 calc_type = 2
-                if self.postprocess:
-                    while (24.0*block_size*(self.input_data['sim_time']/self.input_data['tau_K'])/1024/1024)>0.9*self.min_mem:
-                        block_size -= 100
-                        if block_size < 100: 
-                            postprocess = False 
-                            break 
             
             else:
                 sys.exit('Incorrect EQ_calc specified in input file. Please choose "stress" or "msd" for G(t) or MSD for the equilibrium calculation.')
 
-        if not postprocess and self.postprocess: #if postprocessing arrays are too large, use on the fly correlator (but will not report uncertainties)
-            print("")
-            print("Warning: simulation size is too large for postprocessing. Using on the fly correlator for equilibrium calculation. Uncertainty will not be reported.")
-            print("")
-        elif not postprocess:
-            print("Using on the fly correlator for equilibrium calculation. Uncertainty in the correlation values will not be reported.")
-
         #keep track of first entanglement for MSD
         QN_first = np.zeros(shape=(chain.QN.shape[0],3)) 
 
-        #save initial chain conformation distributions\
+        #save initial chain conformation distributions
         if self.distr:
-            self.save_distributions('initial',chain.QN,chain.Z)
-
-        #save initial Z distribution to file
-        if self.distr:
+            fileio.save_distributions(self.input_data,'initial',chain.QN,chain.Z,self.output_dir,self.sim_ID)
+            #save initial Z distribution to file
             np.savetxt(os.path.join(self.output_dir,'Z_initial_%d.txt'%self.sim_ID),chain.Z,fmt='%d')
 
         #initialize arrays for finding jump index
@@ -500,9 +296,45 @@ class FSM_LINEAR(object):
         #correlator parameters for both block transformation or on-the-fly
         p = correlation.p
         m = correlation.m
-        S_corr = math.ceil(np.log(self.input_data['sim_time']/self.input_data['tau_K']/p)/np.log(m)) + 1 #number of correlator levels
+        dataLength = math.floor(self.input_data['sim_time']/self.input_data['tau_K']) #total number of data points
+        if dataLength < p*m: #minimum simulation time must be >= p*m
+            dataLength = p*m
+
+        #initialize some time constants used for simulation
+        #sync time is the time for a chain to sync with other chains
+        if self.flow: #if flow, set chain sync time to tau_K
+            max_sync_time = self.input_data['tau_K']
+            res = np.zeros(shape=(chain.QN.shape[0],1,8),dtype=float) #initialize result array (stress or CoM)
+            num_time_syncs = int(math.ceil(self.input_data['sim_time'] / max_sync_time))
+            if self.turn_flow_off:
+                num_time_syncs_flow = int(math.ceil(self.input_data['flow_time'] / max_sync_time))
+                max_sync_time_afterflow = 250*self.input_data['tau_K']
+                num_time_syncs_afterflow = int(math.ceil((self.input_data['sim_time']-self.input_data['flow_time'])/max_sync_time_afterflow))
         
-        if not postprocess:
+        else: #if not flow, set chain sync times based on data array length and initialize result array
+            max_sync_time = self.input_data['sim_time']
+            if self.correlator=='rsvl':
+                S_corr = math.ceil(np.log(dataLength/p)/np.log(m)) + 1 #number of correlator levels
+                num_time_syncs = 1
+                res = np.zeros(shape=(chain.QN.shape[0],250,4),dtype=float) 
+            else:
+                S_corr= math.floor(np.log(dataLength/p)/np.log(m)) + 1 #number of correlator levels
+                if dataLength < 2048: #max result array size of 10000
+                    arrayLength = dataLength
+                else:
+                    arrayLength = 2048
+                g = math.floor(arrayLength/(p*m))
+                num_time_syncs=int(math.floor(np.log(dataLength/(p*g))/np.log(m))) + 1
+                arrayLength = p*g*m
+                last_index = -1 #if all data in arrayLength is used, set last index to entire array
+
+                if calc_type == 1: #result array (G(t) or MSD) dimensions are set based on EQ_calc
+                    res = np.zeros(shape=(chain.QN.shape[0],arrayLength+1,1),dtype=float) #initialize result array (stress or CoM) to always hold 250 stress values per chain
+                elif calc_type == 2:
+                    res = np.zeros(shape=(chain.QN.shape[0],arrayLength+1,3),dtype=float) 
+        
+        if self.correlator=='rsvl':
+            print("Using on the fly correlator for equilibrium calculation. Uncertainty in the correlation values will not be reported.")
             #initialize arrays for correlator
             D_array = np.zeros(shape=(chain.QN.shape[0],S_corr,p,3),dtype=float)
             D_shift_array = np.zeros(shape=(chain.QN.shape[0],S_corr,p,3),dtype=float)
@@ -550,31 +382,8 @@ class FSM_LINEAR(object):
         d_tau_CD_used_CD=cuda.to_device(tau_CD_used_CD)
         
         #set simulation time and entanglement lifetime array
-        self.step_count = 0                                #used to calculate number of jump processes for checking random number arrays
+        self.step_count = 0                              #used to calculate number of jump processes for checking random number arrays
         enttime_bins = np.zeros(shape=(20000),dtype=int) #bins to hold entanglement lifetime distributions
-        
-        #initialize some time constants used for simulation
-        #sync time is the time for a chain to sync with other chains and write data to file
-        if self.flow: #if flow, set sync time to tau_K
-            max_sync_time = self.input_data['tau_K']
-            res = np.zeros(shape=(chain.QN.shape[0],1,8),dtype=float) #initialize result array (stress or CoM)
-            if self.turn_flow_off:
-                num_time_syncs_flow = int(math.ceil(self.input_data['flow_time'] / max_sync_time))
-                max_sync_time_afterflow = 250*self.input_data['tau_K']
-                num_time_syncs_afterflow = int(math.ceil((self.input_data['sim_time']-self.input_data['flow_time'])/max_sync_time_afterflow))
-        else:
-            if postprocess:
-                max_sync_time = 250*self.input_data['tau_K'] #setting sync time to t = 250*tau_K
-                #set max sync time to simulation time if simulation time is less than sync time
-                if max_sync_time > self.input_data['sim_time']:
-                    max_sync_time = self.input_data['sim_time']
-                if calc_type == 1: #result array (G(t) or MSD) dimensions are set based on EQ_calc
-                    res = np.zeros(shape=(chain.QN.shape[0],251,1),dtype=float) #initialize result array (stress or CoM) to always hold 250 stress values per chain
-                elif calc_type == 2:
-                    res = np.zeros(shape=(chain.QN.shape[0],251,3),dtype=float) 
-            else:
-                max_sync_time = self.input_data['sim_time']
-                res = np.zeros(shape=(chain.QN.shape[0],250,4),dtype=float) 
         
         #move result array, calc_type, and flow variables to device
         d_res = cuda.to_device(res) 
@@ -582,18 +391,43 @@ class FSM_LINEAR(object):
         d_flow = cuda.to_device([self.flow])
         d_flow_off = cuda.to_device([self.turn_flow_off])
 
-        #calculate number of time syncs based on max_sync_time
-        if not self.turn_flow_off:
-            num_time_syncs = int(math.ceil(self.input_data['sim_time'] / max_sync_time))
-        else:
+        #calculate number of time syncs based on max_sync_time for flow
+        if self.turn_flow_off:
             num_time_syncs = num_time_syncs_flow + num_time_syncs_afterflow
+            
+
+        if self.correlator == 'munch' and not self.flow:
+            count = 0
+            corr_time = [] #array to hold correlated times (log scale) 
+            for i in range(0,p*m):
+                count+=1
+                corr_time.append(i*self.input_data['tau_K'])
+            if num_time_syncs > 1:
+                for i in range(1,num_time_syncs):
+                    for j in range(p*m**i,p*m**(i+1),m**i):
+                        if j*self.input_data['tau_K'] <= self.input_data['sim_time']:
+                            count+=1
+                            corr_time.append(j*self.input_data['tau_K'])
+            for i in range(num_time_syncs,S_corr):
+                for j in range(p*m**i,p*m**(i+1),m**i):
+                    if j*self.input_data['tau_K'] <= self.input_data['sim_time']:
+                            count+=1
+                            corr_time.append(j*self.input_data['tau_K'])
+
+            data_corr = np.zeros(shape=(self.input_data['Nchains'],count,2),dtype=float) #hold average chain stress/com correlations 
+            corr_array = np.zeros(shape=(self.input_data['Nchains'],p*g*m),dtype=float) #array to store correlation values for averaging each chain inside kernel
+            corr_index = np.ones(shape=(self.input_data['Nchains']),dtype=int)*-1
+
+            #transfer to device
+            d_corr_index = cuda.to_device(corr_index)
+            d_data_corr = cuda.to_device(data_corr)
+            d_corr_array = cuda.to_device(corr_array)
         
         #SIMULATION STARTS -------------------------------------------------------------------------------------------------------------------------------
         
         #timer start
         t0 = time.time()
 
-        
         progress_bar = {'total': None,'bar': 'smooth', 'spinner':None,'manual':True}
         with alive_bar(**progress_bar) as bar:
 
@@ -601,12 +435,27 @@ class FSM_LINEAR(object):
             with cuda.defer_cleanup():
                 
                 #start loop over number of times chains are synced
-                for x_sync in range(1,num_time_syncs+1):
+                for x_sync in range(0,num_time_syncs):
 
-                    if x_sync == num_time_syncs:
-                        next_sync_time = self.input_data['sim_time']
+                    if x_sync == 0:
+                        if self.correlator=='rsvl' or num_time_syncs==1:
+                            next_sync_time = self.input_data['sim_time']
+                        else:
+                            if self.flow:
+                                next_sync_time = self.input_data['tau_K']
+                            else:
+                                next_sync_time = p*g*m*self.input_data['tau_K']
                     else:
-                        next_sync_time = x_sync*max_sync_time
+                        if self.flow:
+                            next_sync_time = (x_sync+1)*self.input_data['tau_K']
+                        else:
+                            if not self.turn_flow_off:
+                                correlation.coarse_result_array[blockspergrid,threadsperblock](d_res,g,d_calc_type) #keep half of result array values for block transformation
+                                if x_sync == (num_time_syncs-1):
+                                    next_sync_time = self.input_data['sim_time'] - p*g*m**(x_sync)*self.input_data['tau_K']
+                                    last_index = int(math.floor((self.input_data['sim_time'])/self.input_data['tau_K'])/(m**(num_time_syncs-1)))
+                                else:
+                                    next_sync_time = (p*g*m**(x_sync+1) - p*g*m**(x_sync))*self.input_data['tau_K']
                     
                     #if simulating shear flow and flow time is less than total simulation time, turn off flow when flow time is reached
                     if self.flow and self.turn_flow_off:
@@ -622,12 +471,11 @@ class FSM_LINEAR(object):
                             d_temp_Q = cuda.to_device(temp_Q)
                     
                     if not self.flow and self.turn_flow_off:
-                        if x_sync==num_time_syncs:
+                        if (x_sync+1)==num_time_syncs:
                             next_sync_time = self.input_data['sim_time'] - self.input_data['flow_time']
                         else:
-                            next_sync_time = (x_sync-num_time_syncs_flow)*max_sync_time
+                            next_sync_time = (x_sync+1-num_time_syncs_flow)*max_sync_time
 
-                    
                     #initialize flags for chain sync (if chain times reach the sync time, flag goes up)
                     reach_flag_all = False
                     sum_reach_flags = 0
@@ -638,14 +486,21 @@ class FSM_LINEAR(object):
                         #calculate probabilities for entangled strand of a chain (create, destroy, or shuffle)
                         ensemble_kernel.calc_strand_prob[dimGrid, dimBlock](d_Z,d_QN,d_flow,d_tdt,d_kappa,d_tau_CD,d_shift_probs,
                                                                               d_CDflag,d_CD_create_prefact,d_beta,d_NK)
-                        
-                        #calculate probabilities for chain ends
+
                         ensemble_kernel.calc_chainends_prob[blockspergrid, threadsperblock](d_Z, d_QN, d_shift_probs, d_CDflag, d_CD_create_prefact, d_beta, d_NK)
 
+
+
                         #control chain time and stress calculation
-                        ensemble_kernel.time_control_kernel[blockspergrid, threadsperblock](d_Z,d_QN,d_new_Q,d_QN_first,d_NK,d_chain_time,
+                        if self.correlator =='munch' and not self.flow and not self.turn_flow_off:
+                            ensemble_kernel.time_control_munch_kernel[blockspergrid,threadsperblock](d_Z,d_QN,d_QN_first,d_NK,d_chain_time,
+                                                                    d_tdt,d_res,d_calc_type,d_reach_flag,next_sync_time,
+                                                                    d_write_time,d_time_resolution,x_sync,p,g,m)
+
+                        else:
+                            ensemble_kernel.time_control_kernel[blockspergrid, threadsperblock](d_Z,d_QN,d_new_Q,d_QN_first,d_NK,d_chain_time,
                                                                                             d_tdt,d_res,d_calc_type,d_flow,d_flow_off,d_reach_flag,next_sync_time,
-                                                                                            max_sync_time,d_write_time,d_time_resolution,self.step_count%250,postprocess)
+                                                                                            max_sync_time,d_write_time,d_time_resolution,self.step_count%250)
                         
                         #find jump type and location
                         ensemble_kernel.choose_step_kernel[blockspergrid, threadsperblock](d_Z, d_shift_probs, d_sum_W_sorted, d_uniform_rand, d_rand_used, 
@@ -668,18 +523,8 @@ class FSM_LINEAR(object):
                                                                                             d_tau_CD_used_CD,d_tau_CD_gauss_rand_SD,
                                                                                             d_tau_CD_gauss_rand_CD)
                         
-
                         #update step counter for arrays and array positions
                         self.step_count+=1
-
-                        #if OTF correlator, update progress bar based on chain times
-                        if (self.step_count%50==0) and (not postprocess):
-                            check_time = d_write_time.copy_to_host()
-                            sum_time = 0
-                            for i in range(0,len(check_time)):
-                                sum_time += int(check_time[i])
-                            total_progress = round(sum_time/self.input_data['Nchains']/self.input_data['sim_time'],2)
-                            bar(total_progress)
                     
                         #record entanglement lifetime distribution
                         if analytic==False:
@@ -699,7 +544,7 @@ class FSM_LINEAR(object):
                            
                             gpu_rand.refill_uniform_rand[blockspergrid,threadsperblock](self.rng_states, self.input_data['Nchains'], d_rand_used, d_uniform_rand)
                         
-                            if (not postprocess) and (not self.flow):
+                            if (self.correlator=='rsvl') and (not self.flow) and (not self.turn_flow_off):
                                 correlation.update_correlator[blockspergrid,threadsperblock](250,d_res,d_D,d_D_shift,d_C,d_N,d_A,d_M,d_calc_type)
                             
                             self.step_count = 0
@@ -708,30 +553,65 @@ class FSM_LINEAR(object):
                         if self.flow or self.turn_flow_off:
                             reach_flag_host = d_reach_flag.copy_to_host()
                             sum_reach_flags = int(np.sum(reach_flag_host)) 
-                        elif (not self.flow) and (not self.turn_flow_off) and (self.step_count%250==0):
+                        elif (not self.flow) and (not self.turn_flow_off) and (self.step_count==0):
                             reach_flag_host = d_reach_flag.copy_to_host()
                             sum_reach_flags = int(np.sum(reach_flag_host))
 
                         #if all reach_flags are 1, sum should equal number of chains and all chains are synced
                         reach_flag_all = (sum_reach_flags == int(self.input_data['Nchains'])) 
-                    
-                    if postprocess:
-                        #write result of all chains to file if postprocess correlator is used
-                        if self.flow: #if flow, calculate flow stress tensor for each chain
-                            ensemble_kernel.calc_flow_stress[blockspergrid,threadsperblock](d_Z,d_QN,d_res)
+                       
+                        #update progress bar based on chain times
+                        if (self.step_count==0):
+                            check_time = d_chain_time.copy_to_host()
+                            sum_time = 0
+                            if self.correlator == 'rsvl' or self.flow or self.turn_flow_off:
+                                if self.turn_flow_off and not self.flow:
+                                    sum_time = int(np.sum(np.floor(check_time+self.input_data['flow_time'])))
+                                else:
+                                    sum_time = int(np.sum(np.floor(check_time)))
+                                total_progress = round(sum_time/self.input_data['Nchains']/self.input_data['sim_time'],2)
+                            else:
+                                reach_flag1 = np.argwhere(reach_flag_host==1)
+                                reach_flag0 = np.argwhere(reach_flag_host==0)
+                                if x_sync == 0:
+                                    sum_time += int(np.sum(np.floor(check_time[reach_flag0])))
+                                else:
+                                    sum_time = int(np.sum(np.floor(check_time[reach_flag0])+p*g*m**(x_sync)*self.input_data['tau_K']))
+                                if x_sync == num_time_syncs-1:
+                                    sum_time += int(np.sum(np.floor(check_time[reach_flag1])+self.input_data['sim_time']))
+                                else:
+                                    sum_time += int(np.sum(np.floor(check_time[reach_flag1])+p*g*m**(x_sync+1)*self.input_data['tau_K']))
+                                total_progress = round(sum_time/self.input_data['Nchains']/(self.input_data['sim_time']),2)
+                            bar(total_progress)
 
+                
+                    if self.flow or self.turn_flow_off: #if flow, calculate flow stress tensor for each chain
+                        if self.flow:
+                            ensemble_kernel.calc_flow_stress[blockspergrid,threadsperblock](d_Z,d_QN,d_res)
                         res_host = d_res.copy_to_host()
-                        if calc_type == 1: #if G(t), write tau_xy
-                            self.write_stress(x_sync,next_sync_time,res_host)
-                        elif calc_type == 2: #if MSD, write CoM 
-                            self.write_com(x_sync,next_sync_time,res_host)
-                  
-                    #if not using OTF correlator, update progress bar
-                    if postprocess:
-                        bar(x_sync/num_time_syncs)
-            
-        #SIMULATION ENDS---------------------------------------------------------------------------------------------------------------------------
+                        fileio.write_stress(self.input_data,self.flow,self.turn_flow_off,x_sync+1,next_sync_time,res_host,self.output_dir,self.sim_ID)
+                    
+                    # if self.postprocess and not self.flow:
+                    #     #write result of all chains to file if postprocess correlator is used
+                    #     res_host = d_res.copy_to_host()
+                    #     if calc_type == 1: #if G(t), write tau_xy
+                    #         print(self.flow,self.turn_flow_off)
+                    #         fileio.write_stress(self.input_data,self.flow,self.turn_flow_off,x_sync+1,next_sync_time,res_host,self.output_dir,self.sim_ID)
+                    #     elif calc_type == 2: #if MSD, write CoM 
+                    #         fileio.write_com(self.input_data,x_sync+1,next_sync_time,res_host,self.output_dir,self.sim_ID)
+
+                    #if not using OTF correlator, update correlations
+                    elif self.correlator=='munch':
+                        #run the block transformation and calculate correlation with error
+                        correlation.calc_corr[blockspergrid,threadsperblock](d_res,d_calc_type,num_time_syncs,x_sync,d_data_corr,d_corr_array,d_corr_index,last_index, d_time_resolution, self.input_data['sim_time'])
         
+        if self.correlator=='munch' and not self.flow and not self.turn_flow_off:
+            #finish last few correlations
+            for i in range(num_time_syncs,S_corr):
+                correlation.calc_corr[blockspergrid,threadsperblock](d_res,d_calc_type,num_time_syncs,i,d_data_corr,d_corr_array,d_corr_index,last_index,d_time_resolution, self.input_data['sim_time'])
+
+        #SIMULATION ENDS---------------------------------------------------------------------------------------------------------------------------
+
         t1 = time.time()
         print('')
         print("Total simulation time: %.2f minutes."%((t1-t0)/60.0))
@@ -753,11 +633,11 @@ class FSM_LINEAR(object):
         #save final distributions to file
         if self.distr:
             np.savetxt(os.path.join(self.output_dir,'Z_final_%d.txt'%self.sim_ID),Z_final,fmt='%d')
-            self.save_distributions('final',QN_final,Z_final)
+            fileio.save_distributions(self.input_data,'final',QN_final,Z_final,self.output_dir,self.sim_ID)
         
         
         if not self.flow and not self.turn_flow_off:
-            if not postprocess:
+            if self.correlator == 'rsvl':
                 #get OTF correlator results
                 C_array = d_C.copy_to_host()
                 N_array = d_N.copy_to_host()
@@ -775,70 +655,14 @@ class FSM_LINEAR(object):
                             if j*(m**corrLevel)*self.input_data['tau_K'] <= self.input_data['sim_time']:
                                 corr_time.append(j*(m**corrLevel)*self.input_data['tau_K'])
                                 corr_aver.append(np.sum(C_array[:,corrLevel,j]/N_array[:,corrLevel,j])/self.input_data['Nchains'])
+
             else:
-                #read in data files for autocorrelation function and split into blocks of block_size chains (helps prevent reaching maximum memory)
-
-                num_chain_blocks = math.ceil(self.input_data['Nchains']/block_size)
-                num_times = math.ceil(self.input_data['sim_time']/self.input_data['tau_K'])+1
-
-                #counter for initializing final array size and set the correlated times in corr_time array
-                count = 0
-                corr_time = [] #array to hold correlated times (log scale) 
-                for corrLevel in range(0,S_corr):
-                    if corrLevel == 0:
-                        for j in range(0,p):
-                            count+= 1
-                            corr_time.append(j*(m**corrLevel)*self.input_data['tau_K'])
-                    
-                    else:
-                        for j in range(int(p/m),p):
-                            if j*(m**corrLevel)*self.input_data['tau_K'] <= self.input_data['sim_time']:
-                                count += 1
-                                corr_time.append(j*(m**corrLevel)*self.input_data['tau_K'])
-
-                average_corr = np.zeros(shape=len(corr_time))
-                average_error = np.zeros(shape=len(corr_time))
+                #copy results to host and calculate average over all chains 
+                data_corr_host = d_data_corr.copy_to_host()
                 
-                print("Loading stress data and calculating correlation function, this may take some time...",end="",flush=True)
-                for n in range(0,num_chain_blocks):
-                    if n == num_chain_blocks-1:
-                        num_chains = self.input_data['Nchains']
-                    else:
-                        num_chains = n*block_size + block_size
-
-                    if calc_type == 1: #stress data if EQ_calc is 'stress'
-                        stress_array = np.array(self.load_results(self.stress_output,block_num=n,block_size=block_size,num_chains=num_chains)) 
-                        rawdata = np.array([stress_array])
-                        
-                    elif calc_type == 2: #CoM data if EQ_calc is 'msd' (this is a little messy, since each dimension is stored separately)
-                        com_array_x = np.array(self.load_results(self.com_output_x,block_num=n,block_size=block_size,num_chains=num_chains)) #load center of mass in x file
-                        com_array_y = np.array(self.load_results(self.com_output_y,block_num=n,block_size=block_size,num_chains=num_chains)) #load center of mass in y file
-                        com_array_z = np.array(self.load_results(self.com_output_z,block_num=n,block_size=block_size,num_chains=num_chains)) #load center of mass in z file
-
-                        rawdata = np.array([com_array_x,com_array_y,com_array_z])
-
-                    #initialize arrays for output
-                    data_corr = np.zeros(shape=(block_size,count,2),dtype=float) #hold average chain stress/com correlations 
-                    corr_array =np.zeros(shape=(num_times,block_size),dtype=float) #array to store correlation values for averaging each chain inside kernel
-
-                    #transfer to device
-                    d_data_corr = cuda.to_device(data_corr)
-                    d_rawdata = cuda.to_device(rawdata)
-                    d_corr_array = cuda.to_device(corr_array)
-
-                    #flattened grid dimensions
-                    threadsperblock = 256
-                    blockspergrid = (num_chains + threadsperblock - 1)//threadsperblock
-
-                    #run the block transformation and calculate correlation with error
-                    correlation.calc_corr[blockspergrid,threadsperblock](d_rawdata,calc_type,S_corr,d_data_corr,d_corr_array)
-
-                    #copy results to host and calculate average over all chains 
-                    data_corr_host = d_data_corr.copy_to_host()
-                    
-                    #running sum of time correlation averages for chains in block
-                    average_corr += np.sum(data_corr_host[:,:,0],axis=0)
-                    average_error += np.sum(data_corr_host[:,:,1],axis=0)
+                #running sum of time correlation averages for chains in block
+                average_corr = np.sum(data_corr_host[:,:,0],axis=0)
+                average_error = np.sum(data_corr_host[:,:,1],axis=0)
 
                 #divide running sum by number of chains
                 corr_aver = average_corr/self.input_data['Nchains']  #average correlation
@@ -848,37 +672,30 @@ class FSM_LINEAR(object):
             if calc_type == 1:
                 #make combined result array and write to file
                 with open(os.path.join(self.output_dir,'Gt_result_%d.txt'%self.sim_ID), "w") as f:
-                    if not postprocess:
+                    if self.correlator=='rsvl':
                         f.write('Time, G(t)\n')
                         for m in range(0,len(corr_time)):
-                                f.write("%d, %.4f \n"%(corr_time[m],corr_aver[m]))
+                            f.write("%d, %.4f \n"%(corr_time[m],corr_aver[m]))
                     else:
                         f.write('Time, G(t), Error\n')
                         for m in range(0,len(corr_time)):
                             f.write("%d, %.4f, %.4f \n"%(corr_time[m],corr_aver[m],corr_error[m]))
-                if postprocess:
-                    print('Done.')
+
                 print('G(t) results written to Gt_result_%d.txt'%self.sim_ID)
 
             if calc_type == 2:
                 #make combined result array and write to file
                 with open(os.path.join(self.output_dir,'MSD_result_%d.txt'%self.sim_ID), "w") as f:
-                    if not postprocess:
+                    if self.correlator=='rsvl':
                         f.write('Time, MSD\n')
                         for m in range(0,len(corr_time)):
                             f.write("%d, %.4f \n"%(corr_time[m],corr_aver[m]))
                     else:
-                        f.write('Time, MSD, Error')
+                        f.write('Time, MSD, Error\n')
                         for m in range(0,len(corr_time)):
                             f.write("%d, %.4f, %.4f \n"%(corr_time[m],corr_aver[m],corr_error[m]))
-                if postprocess:
-                    print('Done.')
-                print('MSD results written to MSD_result_%d.txt'%self.sim_ID)
 
-            #if postprocess correlator used, calculate time after calculation is finished
-            if postprocess:
-                t2 = time.time()
-                print("Total computational time: %.2f minutes."%((t2-t0)/60.0))
+                print('MSD results written to MSD_result_%d.txt'%self.sim_ID)
             
         if self.fit:
             print("")

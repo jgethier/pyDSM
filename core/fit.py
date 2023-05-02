@@ -54,8 +54,8 @@ class CURVE_FIT(object):
 
         #frequency range
         omegaPoints = 100
-        omegaMin = -4
-        omegaMax = 1
+        omegaMin = -np.log10(self.tfinal)
+        omegaMax = 0
         omegaArr=10**(omegaMin+(np.array(range(omegaPoints), float) + 1.0)/omegaPoints*(omegaMax-omegaMin))
 
         #start figure
@@ -162,11 +162,15 @@ class CURVE_FIT(object):
 
         return 
 
-    def find_nearest(self,array,value):
+    def find_first_value(self,array,value):
         '''
-        Find nearest value in array
+        Find first index nearest to "value" in array
         '''
-        idx = (np.abs(array-value)).argmin()
+        idx = -1
+        for i in range(0,len(array)):
+            if array[i]-value<=0:
+                idx=i
+                break
         return idx
 
     def Gt_MMM(self,time,params):
@@ -353,9 +357,8 @@ class CURVE_FIT(object):
                 self.return_error = False 
 
         GN0=y[0] #G at t=0
-        cutoff_list = np.array([np.argmax(y[1:]-y[:-1]>0), np.argmax(y<0), self.find_nearest(y,0.01*GN0), np.size(x)]) #list to determine where to cut G(t) off at long times
 
-        cutoff = min(cutoff_list[cutoff_list>0]) #determine best place to cut G(t) at end
+        cutoff = self.find_first_value(y,GN0*0.009) #determine best place to cut G(t) at end
         x=x[:cutoff]
         y=y[:cutoff]
         s=s[:cutoff]

@@ -57,7 +57,7 @@ python gpu_dsm.py
 
 POSITIONAL ARGUMENTS:
 
-sim_ID - An integer for the simulation ID. Appended to the filenames. 
+sim_ID - An integer for the simulation ID, appended to the result filename. This also sets the seed number of the simulation to sim_ID*Nchains.  
 
 Example: 
 ```

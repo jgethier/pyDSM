@@ -1,12 +1,15 @@
 from numba import cuda, float64
 import math
 
-#correlator parameters
+#global correlator parameters
 p = 16 
 m = 2
 
 @cuda.jit(device=True)
 def add_to_correlator(data,corrLevel,D,temp_D,C,N,A,M,corrtype):
+    '''
+    Add new stress value to RSVL correlator. 
+    '''
 
     if corrLevel >= D.shape[0]:
         return 
@@ -55,6 +58,9 @@ def add_to_correlator(data,corrLevel,D,temp_D,C,N,A,M,corrtype):
 
 @cuda.jit
 def update_correlator(n,result_array,D,D_shift,C,N,A,M,corrtype):
+    '''
+    Update the RSVL correlator with new stress values from the result_array.
+    '''
 
     i = cuda.blockIdx.x*cuda.blockDim.x + cuda.threadIdx.x #chain index
 
@@ -83,6 +89,17 @@ def update_correlator(n,result_array,D,D_shift,C,N,A,M,corrtype):
 
 @cuda.jit
 def coarse_result_array(data,g,calc_type):
+    '''
+    Keep every other stress value and store them in the first half of the data array. 
+    This function coarsens the resolution of the data stored in the data array by a factor of 1/2.
+
+    Args:
+        data - array of data values (stress or MSD)
+        g - parameter for the block of stress values recorded (see main.py)
+        calc_type - 0 or 1 for stress or MSD, respectively
+    Returns:
+        None - shifts the values in the data array
+    '''
 
     i = cuda.blockIdx.x*cuda.blockDim.x + cuda.threadIdx.x #chain index
     
@@ -100,7 +117,21 @@ def coarse_result_array(data,g,calc_type):
 
 @cuda.jit
 def calc_corr(rawdata, calc_type, num_time_syncs, corrLevel, data_corr, corr_array, array_index, last_index, time_res, sim_time):
-    
+    '''
+    GPU Kernel to apply the block transformation using the MUnCH algorithm and calculate time autocorrelations at various lag times during the simulation.
+
+    Args:
+        rawdata - raw stress/MSD values stored for each chain
+        calc_type - 0 or 1 for stress or MSD, respectively
+        num_time_syncs - total number of chain time syncs during the simulation
+        corrLevel - correlation level
+        data_corr - array to store the final correlation value at each time lag
+        corr_array - array to store correlation values during the block transformation
+        array_index - index to store correlation value at a specific time lag
+        last_index - last index of the stress/MSD value to be used 
+        time_res - time resolution of the recorded stress/MSD values
+        sim_time - total simulation time
+    '''
     i = cuda.blockIdx.x*cuda.blockDim.x + cuda.threadIdx.x #chain index
     
     if i >= data_corr.shape[0]:
@@ -128,6 +159,9 @@ def calc_corr(rawdata, calc_type, num_time_syncs, corrLevel, data_corr, corr_arr
 
 @cuda.jit(device=True)
 def corr_block(chainIdx, chainData, tj, corr, arr_index, xV, calc_type):
+    '''
+    Device function to apply the block transformation to the stress or MSD values.
+    '''
     
     #number of correlations
     n = int(len(chainData[:,0])-tj)

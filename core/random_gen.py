@@ -1,6 +1,5 @@
 import numpy as np
 
-
 # Create a length 624 list to store the state of the generator
 MT = [0 for i in range(624)]
 index = 0

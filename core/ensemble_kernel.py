@@ -5,19 +5,24 @@ from numba import cuda, float32, int32
 def apply_flow(Q,dt,kappa):
     '''
     Device function (run on GPU) to apply shear flow to ensemble of chains
-    Inputs: Q - strand conformation
-            dt - chain time step
-            kappa - strain tensor
-    Returns: deformed strand orientation
+    Args: 
+        Q - strand conformation
+        dt - chain time step
+        kappa - strain tensor
+    Returns: 
+        deformed strand orientation
     '''
     return Q[0] + dt*kappa[0]*Q[0] + dt*kappa[1]*Q[1] + dt*kappa[2]*Q[2], Q[1] + dt*kappa[3]*Q[0] + dt*kappa[4]*Q[1] + dt*kappa[5]*Q[2], Q[2] + dt*kappa[6]*Q[0] + dt*kappa[7]*Q[1] + dt*kappa[8]*Q[2], Q[3]
 
 @cuda.jit
 def reset_chain_flag(reach_flag):
     '''
-    GPU function to reset the chain flag after the chain time has reached the sync time
-    Inputs: reach_flag - array of binary values (0 or 1) indicating whether a chain has reached the sync time
-    Returns: None (updates reach_flag device array)
+    GPU kernel to reset the chain flag after the chain time has reached the sync time
+    
+    Args: 
+        reach_flag - array of binary values (0 or 1) indicating whether a chain has reached the sync time
+    Returns: 
+        None (updates reach_flag device array)
     '''
     i = cuda.blockIdx.x*cuda.blockDim.x + cuda.threadIdx.x #chain index
     
@@ -30,6 +35,9 @@ def reset_chain_flag(reach_flag):
 
 @cuda.jit
 def reset_chain_time(chain_time,write_time,flow_time):
+    '''
+    GPU kernel to reset the chain times after flow is stopped.
+    '''
 
     i = cuda.blockIdx.x*cuda.blockDim.x + cuda.threadIdx.x #chain index
     
@@ -43,6 +51,17 @@ def reset_chain_time(chain_time,write_time,flow_time):
 
 @cuda.jit
 def track_newQ(Z,new_Q,temp_Q,found_shift,found_index,reach_flag):
+    '''
+    GPU kernel to track fraction of new entanglements after cessation of flow.
+
+    Args: 
+        Z - number of entangled strands for each chain
+        new_Q - new entanglements created by SD or CD for each chain
+        temp_Q - array to hold newly created entanglements
+        found_shift - array of jump processes for each chain
+        found_index - array of index values where jump process occurs for each chain
+        reach_flag - flag to determine whether chain has reached the sync time or not (0 or 1)
+    '''
 
     i = cuda.blockIdx.x*cuda.blockDim.x + cuda.threadIdx.x #chain index
     
@@ -85,11 +104,14 @@ def track_newQ(Z,new_Q,temp_Q,found_shift,found_index,reach_flag):
 @cuda.jit
 def calc_flow_stress(Z,QN,stress):
     '''
-    GPU function that calculates the flow stress tensor (only used when EQ_calc is set to 'msd')
-    Inputs: Z - number of entangled strands (including dangling ends)
-            QN - chain conformations and number of Kuhn steps in each strand
-            stress - array to hold stress values
-    Returns: None (updates stress device array)
+    GPU kernel that calculates the flow stress tensor (only used when EQ_calc is set to 'msd')
+    
+    Args: 
+        Z - number of entangled strands (including dangling ends)
+        QN - chain conformations and number of Kuhn steps in each strand
+        stress - array to hold stress values
+    Returns: 
+        None (updates stress device array)
     '''
     i = cuda.blockIdx.x*cuda.blockDim.x + cuda.threadIdx.x #chain index
     
@@ -119,17 +141,20 @@ def calc_flow_stress(Z,QN,stress):
 @cuda.jit
 def calc_strand_prob(Z,QN,flow,tdt,kappa,tau_CD,shift_probs,CD_flag,CD_create_prefact,beta,NK):
     '''
-    GPU function to calculate probabilities for Kuhn step shuffling, entanglement creation or destruction
-    Inputs: Z - number of entangled strands for each chain
-            QN - chain conformations and number of Kuhn steps in each strand
-            flow - boolean variable to determine whether to apply deformation
-            tdt - time steps of each chain
-            kappa - strain tensor (if flow = True, kappa contains non-zero values)
-            tau_CD - entanglement lifetime for probability of destruction due to constraint dynamics
-            shift_probs - array to store probabilities for chain entanglement process (shuffle, creation, destroy, etc)
-            CD_flag - binary flag for determining whether constraint dynamics are implemented (0 - off, 1 - on)
-            CD_create_prefact - variable used to calculate probability to create entanglement
-    Returns: None
+    GPU kernel to calculate probabilities for Kuhn step shuffling, entanglement creation or destruction
+    
+    Args: 
+        Z - number of entangled strands for each chain
+        QN - chain conformations and number of Kuhn steps in each strand
+        flow - boolean variable to determine whether to apply deformation
+        tdt - time steps of each chain
+        kappa - strain tensor (if flow = True, kappa contains non-zero values)
+        tau_CD - entanglement lifetime for probability of destruction due to constraint dynamics
+        shift_probs - array to store probabilities for chain entanglement process (shuffle, creation, destroy, etc)
+        CD_flag - binary flag for determining whether constraint dynamics are implemented (0 - off, 1 - on)
+        CD_create_prefact - variable used to calculate probability to create entanglement
+    Returns: 
+        None
     '''
     i = cuda.blockIdx.x*cuda.blockDim.x + cuda.threadIdx.x #chain index
     j = cuda.blockIdx.y*cuda.blockDim.y + cuda.threadIdx.y #strand index
@@ -211,15 +236,18 @@ def calc_strand_prob(Z,QN,flow,tdt,kappa,tau_CD,shift_probs,CD_flag,CD_create_pr
 @cuda.jit
 def calc_chainends_prob(Z, QN, shift_probs, CD_flag, CD_create_prefact, beta, Nk):
     '''
-    GPU function to calculate probabilities for Kuhn step shuffling, entanglement creation or destruction at chain ends
-    Inputs: Z - number of entangled strands for each chain
-            QN - chain conformations and number of Kuhn steps in each strand
-            shift_probs - array to store probabilities for chain entanglement process (shuffle, creation, destroy, etc)
-            CD_flag - binary flag for determining whether constraint dynamics are implemented (0 - off, 1 - on)
-            CD_create_prefact - variable used to calculate probability to create entanglement
-            beta - entanglement activity parameter (e.g. beta = 1 for CFSM)
-            Nk - maximum number of Kuhn steps in chain (from input.yaml file)
-    Returns: None
+    GPU kernel to calculate probabilities for Kuhn step shuffling, entanglement creation or destruction at chain ends
+    
+    Args: 
+        Z - number of entangled strands for each chain
+        QN - chain conformations and number of Kuhn steps in each strand
+        shift_probs - array to store probabilities for chain entanglement process (shuffle, creation, destroy, etc)
+        CD_flag - binary flag for determining whether constraint dynamics are implemented (0 - off, 1 - on)
+        CD_create_prefact - variable used to calculate probability to create entanglement
+        beta - entanglement activity parameter (e.g. beta = 1 for CFSM)
+        Nk - maximum number of Kuhn steps in chain (from input.yaml file)
+    Returns: 
+        None
     '''
     i = cuda.blockIdx.x*cuda.blockDim.x + cuda.threadIdx.x #chain index
 
@@ -378,16 +406,18 @@ def calc_chainends_prob(Z, QN, shift_probs, CD_flag, CD_create_prefact, beta, Nk
 @cuda.jit
 def choose_step_kernel(Z,shift_probs,sum_W_sorted,uniform_rand,rand_used,found_index,found_shift,add_rand,CD_flag):
     '''
-    GPU function to calculate which entanglement process will be applied to each chain (Kuhn step shuffle, entanglement creation/destruction)
-    Inputs: Z - number of entangled strands for each chain
-            shift_probs - probabilities for entanglement process
-            sum_W_sorted - sum of all probabilities for each chain
-            uniform_rand - uniform random number array for determining entanglement process
-            rand_used - array to keep track of which random numbers were used in uniform_rand
-            found_index - strand index at which entanglement process will occur in chain
-            found_shift - value assigned to each chain for which entanglement process that will occur
-            add_rand - fraction of remaining probability for determining number of Kuhn steps during creation of a strand (see apply_create_CD in apply_step_kernel)
-            CD_flag - binary flag for determining whether constraint dynamics are implemented (0 - off, 1 - on)
+    GPU kernel to calculate which entanglement process will be applied to each chain (Kuhn step shuffle, entanglement creation/destruction)
+    
+    Args: 
+        Z - number of entangled strands for each chain
+        shift_probs - probabilities for entanglement process
+        sum_W_sorted - sum of all probabilities for each chain
+        uniform_rand - uniform random number array for determining entanglement process
+        rand_used - array to keep track of which random numbers were used in uniform_rand
+        found_index - strand index at which entanglement process will occur in chain
+        found_shift - value assigned to each chain for which entanglement process that will occur
+        add_rand - fraction of remaining probability for determining number of Kuhn steps during creation of a strand (see apply_create_CD in apply_step_kernel)
+        CD_flag - binary flag for determining whether constraint dynamics are implemented (0 - off, 1 - on)
     '''
     i = cuda.blockIdx.x*cuda.blockDim.x + cuda.threadIdx.x #chain index
     
@@ -463,7 +493,27 @@ def choose_step_kernel(Z,shift_probs,sum_W_sorted,uniform_rand,rand_used,found_i
 
 @cuda.jit
 def time_control_munch_kernel(Z,QN,QN_first,NK,chain_time,tdt,result,calc_type,reach_flag,next_sync_time,write_time,time_res,corrLevel,p,g,m):
-    
+    '''
+    GPU kernel to control chain times and record stress/MSD values at specific write_time to be used with on-the-fly MUnCH correlator
+
+    Args:
+        Z - number of entangled strands
+        QN - slip-link orientations and Kuhn steps in each entangled strand
+        QN_first - QN for the first slip-link for MSD calculation
+        NK - total number of Kuhn steps for chain center-of-mass calculation (MSD only)
+        chain_time - array holding time values of each chain during the simulation
+        tdt - time step of each chain
+        result - stress or MSD recorded during the simulation
+        calc_type - stress or MSD (0 or 1)
+        reach_flag - flag to determine if chain has reached the next sync time
+        next_sync_time - time at which all chains will reach before correlator is applied
+        write_time - array of integer values for when stress/MSD values are recorded during the simulation
+        time_res - time resolution to record stress/MSD values
+        corrLevel - correlation level for MUnCH correlator
+        p - correlator parameter (see main.py)
+        g - correlator parameter (see main.py)
+        m - correlator parameter (see main.py)
+    '''
     i = cuda.blockIdx.x*cuda.blockDim.x + cuda.threadIdx.x #chain index
     
     if i >= QN.shape[0]:
@@ -533,8 +583,9 @@ def time_control_munch_kernel(Z,QN,QN_first,NK,chain_time,tdt,result,calc_type,r
 
 @cuda.jit
 def time_control_kernel(Z,QN,new_Q,QN_first,NK,chain_time,tdt,result,calc_type,flow,flow_off,reach_flag,next_sync_time,max_sync_time,write_time,time_res,result_index):
-    
-    
+    '''
+    GPU kernel to control chain times and record stress/MSD values at specific write_time to be used with on-the-fly RSVL correlator (similar to the above kernel)
+    '''
     i = cuda.blockIdx.x*cuda.blockDim.x + cuda.threadIdx.x #chain index
     
     if i >= QN.shape[0]:
@@ -644,7 +695,32 @@ def apply_step_kernel(Z, QN, QN_first, QN_create_SDCD, chain_time, time_compensa
                  found_shift, found_index, reach_flag, tdt,
                  t_cr, new_t_cr, f_t, tau_CD, new_tau_CD, rand_used, add_rand, tau_CD_used_SD, tau_CD_used_CD, tau_CD_gauss_rand_SD, tau_CD_gauss_rand_CD):
    
-    
+    '''
+    GPU kernel to apply the transition between chain states (Kuhn step shuffle, create/destroy slip-link, etc.) and update the chain time after the transition occurs.
+
+    Args:
+        Z - total number of entangled strands for each chain
+        QN - strand orientations and Kuhn steps in each entangled strand for each chain
+        QN_first - orientation of the first strand (MSD only)
+        QN_create_SDCD - array to hold shifted strand orientations due to creation of a slip-link due to SD or CD
+        chain_time - time that each chain has reached
+        time_compensation - array for Kahan summation to update chain time
+        sum_W_sorted - the total probability of all chain jump processes for each chain
+        found_shift - transition process that will be applied
+        found_index - index along chain at which transition process will occur
+        reach_flag - array to store whether chain has reached the next sync time or not (if sync time is reached, stop all jump processes)
+        tdt - time step of each chain
+        t_cr - array to store creation times of slip-links during the simulation (used in calculating entanglement lifetimes)
+        new_t_cr - array to store shifted t_cr values when new slip-links are created by SD or CD
+        f_t - entanglement lifetimes of each chain when an entanglement is destroyed
+        tau_CD - characteristic CD lifetime for each slip-link in each chain
+        new_tau_CD - array to hold shifted tau_CD values when a new entanglement is created
+        rand_used - index values for accessing random number arrays (updated by 1 each time a jump process is selected)
+        add_rand - fraction of remaining probability for determining number of Kuhn steps during creation of a strand
+        tau_CD_used_SD - index for tau_CD_gauss_rand_SD to access random numbers from guassian distribution for strand orientation Q 
+        tau_CD_used_CD - same as tau_CD_used_SD but for constraint dynamic arrays (tau_CD_gauss_rand_CD)
+        tau_CD_gauss_rand_SD/CD - arrays that store random values from gaussian distribution for creating new strand orientations Q
+    '''
     i = cuda.blockIdx.x*cuda.blockDim.x + cuda.threadIdx.x #chain index
     
     if i >= QN.shape[0]:
@@ -700,6 +776,9 @@ def apply_step_kernel(Z, QN, QN_first, QN_create_SDCD, chain_time, time_compensa
 
 @cuda.jit(device=True)
 def apply_shuffle(chainIdx, jumpIdx, jumpType, QN):
+    '''
+    Device function to shift Kuhn step left/right through slip-link
+    '''
     if jumpType == 0: #shuffling left
         QN[chainIdx,jumpIdx,3] += 1
         QN[chainIdx,jumpIdx+1,3] -= 1
@@ -711,6 +790,9 @@ def apply_shuffle(chainIdx, jumpIdx, jumpType, QN):
 
 @cuda.jit(device=True)
 def apply_destroy(chainIdx, jumpIdx, jumpType, QN, QN_first, Z, t_cr, tau_CD, f_t, chain_time):
+    '''
+    Device function to destroy a slip-link along the chain
+    '''
     
     tz = int(Z[chainIdx])
 
@@ -786,7 +868,9 @@ def apply_destroy(chainIdx, jumpIdx, jumpType, QN, QN_first, Z, t_cr, tau_CD, f_
 
 @cuda.jit(device=True)
 def apply_create_SD(chainIdx, jumpIdx, jumpType, QN, QN_first, QN_create_SDCD, Z, t_cr, new_t_cr, tau_CD, new_tau_CD, chain_time, tau_CD_used_SD, tau_CD_gauss_rand_SD):
-
+    '''
+    Device function to create a slip-link due to sliding dynamics (SD)
+    '''
     tz = int(Z[chainIdx])
     
     Z[chainIdx]+=1
@@ -866,7 +950,9 @@ def apply_create_SD(chainIdx, jumpIdx, jumpType, QN, QN_first, QN_create_SDCD, Z
 
 @cuda.jit(device=True)
 def apply_create_CD(chainIdx, jumpIdx, QN, QN_first, QN_create_SDCD, Z, t_cr, new_t_cr, tau_CD, new_tau_CD, tau_CD_used_CD, tau_CD_gauss_rand_CD, add_rand):
-
+    '''
+    Device function to create a slip-link due to constraint dynamics (e.g. sliding dynamics of surrounding chains)
+    '''
     tz = int(Z[chainIdx])
     
     Z[chainIdx]+=1

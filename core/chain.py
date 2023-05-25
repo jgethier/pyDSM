@@ -5,7 +5,7 @@ import random as rng
 class ensemble_chains(object):
 
     def __init__(self, config):
-
+        
         self.beta = config['beta']
         self.CD_flag = config['CD_flag']
         self.QN = np.zeros(shape=(config['Nchains'],config['NK'],4),dtype=float)
@@ -16,7 +16,14 @@ class ensemble_chains(object):
 
     
     def z_dist(self,tNk):
-        
+        '''
+        Function to determine the number of entangled strands, Z for each chain drawn randomly from the equilibrium distribution function.
+
+        Args:
+            tNk - total number of Kuhn steps in the chain
+        Returns:
+            Z - number of entangled strands in the chain
+        '''
         p = rng.uniform(0.0,1.0)
         y = p/(1+self.beta)*math.pow(1+(1/self.beta),tNk)
         z = 1
@@ -31,7 +38,10 @@ class ensemble_chains(object):
 
     
     def z_dist_truncated(self,tNk, z_max):
-
+        '''
+        Determine the number of entangled strands in the chain and 
+        resample from the distribution if total Z is greater than the number of Kuhn steps in the chain
+        '''
         tz = self.z_dist(tNk)
         while (tz > z_max):
             tz = self.z_dist(tNk)
@@ -39,8 +49,10 @@ class ensemble_chains(object):
 
 
     def ratio(self, A, n, i):
-        '''Calculates ratio of two binomail coefficients:
-                ratio = (i-1)(A-N)!(A-i+1)!/((A-N-i+2)!A!)'''
+        '''
+        Function to calculate the ratio of two binomail coefficients:
+        ratio = (i-1)(A-n)!(A-i+1)!/((A-n-i+2)!A!)
+        '''
 
         r = float(i-1)/float(A-n+1)
         if n > 1:
@@ -51,7 +63,16 @@ class ensemble_chains(object):
 
 
     def N_dist(self, ztmp, tNk):
+        '''
+        Function to set the distribution of NK in the chain for each entangled strand, drawn randomly from an equilibrium distribution. 
 
+        Args: 
+            ztmp - Number of entangled strands in the chain from Z_dist
+            tNk - total number of Kuhn steps in the chain
+
+        Returns:
+            tN - number of Kuhn steps in each entangled strand (array) 
+        '''
         tN = [0]*ztmp
 
         if ztmp == 1:
@@ -73,7 +94,17 @@ class ensemble_chains(object):
 
 
     def Q_dist(self, tz, Ntmp, dangling_begin=True):
+        '''
+        Function to calculate the distribution of slip link orientations Q drawn randomly from an equilibrium distribution. 
 
+        Args: 
+            tz - total number of entangled strands in the chain
+            Ntmp - number of Kuhn steps in each entangled strand
+            dangling_begin - boolean to determine whether the end is dangling or not (used for network structures) #TODO: add network strands
+        
+        Returns: 
+            Qx, Qy, Qz - orientation of slip links in the chain
+        '''
         Qx = [0.0]*tz
         Qy = [0.0]*tz
         Qz = [0.0]*tz
@@ -89,6 +120,21 @@ class ensemble_chains(object):
 
 
     def chain_init(self, chainIdx, Nk, z_max, pcd=None, dangling_begin=True, PD_flag=False):
+        '''
+        Initialize all chains in the ensemble
+
+        Args:
+            chainIdx - index of the chain in the ensemble for array handling
+            Nk - total number of Kuhn steps in each chain
+            z_max - maximum number of entangled strands each chain can have (currently, set to Nk)
+            pcd - probability density for the entanglement to have a characteristic CD lifetime
+            dangling_begin - boolean to determine whether the chain ends are free or not (#TODO: currently not implemented)
+            PD_flag - boolean value to implement polydispersity (#TODO: currently not implemented)
+
+        Returns:
+            None - sets the initialized class objects for each chain including slip-link orientations Q, Kuhn steps N, entangled strands Z, probability densities for CD, etc.
+
+        '''
 
         tz = self.z_dist_truncated(Nk,z_max)
         self.Z[chainIdx] = tz

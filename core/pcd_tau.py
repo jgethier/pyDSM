@@ -3,7 +3,9 @@ import random as rng
 import math
 
 class p_cd(object):
-
+    '''
+    Class to store discrete modes from the entanglement lifetime distribution for constraint dynamics
+    '''
     def __init__(self,tauArr,gArr,nmodes):
         self.nmodes = nmodes
         self.g = gArr
@@ -40,6 +42,9 @@ class p_cd(object):
 
 
 class p_cd_linear(object):
+    '''
+    Class to store analytic expressions for calculating probability densities for entanglement lifetimes due to constraint dynamics (linear polymers only)
+    '''
 
     def __init__(self,Nk,beta):
 

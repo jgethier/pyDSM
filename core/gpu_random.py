@@ -6,6 +6,9 @@ from numba.cuda.random import xoroshiro128p_uniform_float64, xoroshiro128p_norma
 
 @cuda.jit
 def fill_uniform_rand(rng_states, nchains, count, uniform_rand):
+    '''
+    GPU kernel to fill array with random uniform values in uniform_rand for each chain
+    '''
 
     i = cuda.grid(1)
 
@@ -23,6 +26,9 @@ def fill_uniform_rand(rng_states, nchains, count, uniform_rand):
 
 @cuda.jit
 def refill_uniform_rand(rng_states, nchains, count, uniform_rand):
+    '''
+    GPU kernel to refill all used random values in uniform_rand for each chain
+    '''
 
     i = cuda.grid(1)
 
@@ -43,7 +49,9 @@ def refill_uniform_rand(rng_states, nchains, count, uniform_rand):
 
 @cuda.jit
 def fill_gauss_rand_tauCD(rng_states, discrete, nchains, count, SDtoggle, CD_flag, gauss_rand, pcd_array, pcd_table_eq, pcd_table_cr, pcd_table_tau):
-
+    '''
+    GPU kernel to fill random values from a guassian distribution in gauss_rand array
+    '''
     i = cuda.grid(1)
 
     if i>=nchains:
@@ -79,7 +87,9 @@ def fill_gauss_rand_tauCD(rng_states, discrete, nchains, count, SDtoggle, CD_fla
 
 @cuda.jit
 def refill_gauss_rand_tauCD(rng_states, discrete, nchains, count, SDtoggle, CD_flag, gauss_rand, pcd_array, pcd_table_eq, pcd_table_cr, pcd_table_tau):
-
+    '''
+    GPU kernel to refill all used random values from the gauss_rand array
+    '''
     i = cuda.grid(1)
 
     if i>=nchains:
@@ -118,6 +128,9 @@ def refill_gauss_rand_tauCD(rng_states, discrete, nchains, count, SDtoggle, CD_f
 
 @cuda.jit(device=True)
 def tau_CD_cr(p, pcd_table_cr, pcd_table_tau):
+    '''
+    Device function to calculate probability of creation due to CD using discrete pCD modes
+    '''
 
     for i in range(0,len(pcd_table_cr)):
 
@@ -128,7 +141,9 @@ def tau_CD_cr(p, pcd_table_cr, pcd_table_tau):
 
 @cuda.jit(device=True)
 def tau_CD_eq(p, pcd_table_eq, pcd_table_tau):
-
+    '''
+    Device function to calculate probability of creation due to SD using discrete pCD modes
+    '''
     for i in range(0,len(pcd_table_eq)):
 
         if pcd_table_eq[i] >= p:

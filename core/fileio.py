@@ -6,12 +6,14 @@ import pickle
 def save_distributions(input_data,distr,QN,Z,output_dir,sim_ID):
     '''
     Function to save Q distributions to file
-    Inputs: input_data - input parameters from yaml file
-            distr - name of distribution (initial or final) 
-            QN - distribution of strand orientations and number of Kuhn steps in cluster
-            Z - number of entanglements in each chain
-            output_dir - path to output directory
-            sim_ID - simulation ID number 
+    
+    Args: 
+        input_data - input parameters from yaml file
+        distr - name of distribution (initial or final) 
+        QN - distribution of strand orientations and number of Kuhn steps in cluster
+        Z - number of entanglements in each chain
+        output_dir - path to output directory
+        sim_ID - simulation ID number 
     '''
     Q = []
     L = []
@@ -41,15 +43,19 @@ def save_distributions(input_data,distr,QN,Z,output_dir,sim_ID):
 def write_stress(input_data,flow,turn_flow_off,num_sync,time,stress_array,output_dir,sim_ID):
     '''
     Write the stress of all chains in ensemble
-    Inputs: input_data - input parameters from yaml file
-            flow - boolean to indicate whether flow is on or off
-            turn_flow_off - boolean to indicate whether flow will be turned off
-            num_sync - sync number for simulation
-            time - simulation time
-            stress_array - array of stress values to write
-            output_dir - path to output directory
-            sim_ID - simulation ID number
-    Outputs: stress over time for each chain in stress.txt file
+    
+    Args: 
+        input_data - input parameters from yaml file
+        flow - boolean to indicate whether flow is on or off
+        turn_flow_off - boolean to indicate whether flow will be turned off
+        num_sync - sync number for simulation
+        time - simulation time
+        stress_array - array of stress values to write
+        output_dir - path to output directory
+        sim_ID - simulation ID number
+    
+    Returns: 
+        stress over time for each chain in stress.txt file
     '''
     global old_sync_time
 
@@ -114,13 +120,17 @@ def write_stress(input_data,flow,turn_flow_off,num_sync,time,stress_array,output
 def write_com(input_data,num_sync,time,com_array,output_dir,sim_ID):
     '''
     Write the CoM of all chains in ensemble
-    Inputs: input_data - input parameters from yaml file
-            num_sync - sync number for simulation
-            time - simulation time
-            com_array - array of center of mass (CoM) values to write
-            output_dir - path to output directory
-            sim_ID - simulation ID number 
-    Outputs: CoM over time for each chain and dimension (x,y,z) in CoM.txt file
+    
+    Inputs: 
+        input_data - input parameters from yaml file
+        num_sync - sync number for simulation
+        time - simulation time
+        com_array - array of center of mass (CoM) values to write
+        output_dir - path to output directory
+        sim_ID - simulation ID number 
+    
+    Returns: 
+        Center-of-mass over time for each chain and dimension (x,y,z) in CoM.txt file
     '''
     
     if num_sync == 1: #if first time sync, need to include 0 and initialize file path
@@ -171,10 +181,14 @@ def write_com(input_data,num_sync,time,com_array,output_dir,sim_ID):
 def load_results(filename,block_num,block_size,num_chains):
     '''
     Load in part of the binary .dat file into the result array
-    Inputs: filename - filename of the data file
-            block_num - chain block number (total chains split into n blocks of size block_size)
-            num_chains - block_num*block_size
-    Returns: an array of data read from filename
+    
+    Args: 
+        filename - filename of the data file
+        block_num - chain block number (total chains split into n blocks of size block_size)
+        num_chains - block_num*block_size
+    
+    Returns: 
+        an array of data read from filename
     '''
     result_array = []
     with open(filename,'rb') as f:

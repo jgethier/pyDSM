@@ -22,7 +22,7 @@ def apply_oscillatory_flow(Q,dt,kappa,frequency,time):
     Args: 
         Q - strand conformation
         dt - chain time step
-        kappa - strain rate amplitude tensor
+        kappa - strain rate amplitude tensor (strain amplitude*frequency)
         frequency - frequency of oscillations
         time - chain time
     Returns: 

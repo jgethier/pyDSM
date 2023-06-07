@@ -209,10 +209,10 @@ class FSM_LINEAR(object):
                 new_Q = np.array([[]])
                 d_new_Q = cuda.to_device(new_Q)
                 
-            if flow['type'] == 'linear':
+            if flow['type'] == 'constant':
                 if np.any(flow['kappa']!=0):                                                     
                     print("")
-                    print("Flow type set to 'planar'. Simulating polymers in planar shear flow...")
+                    print("Flow type set to 'constant'. Simulating polymers in constant shear flow...")
                     d_kappa = cuda.to_device(np.array(flow['kappa'],dtype=float)) 
                     d_flow_type = cuda.to_device([1]) #set flow_type to 1 for planar shear flow
                 else:
@@ -221,7 +221,7 @@ class FSM_LINEAR(object):
             if self.input_data['flow']['type'] == 'oscillation':
                 if np.any(flow['kappa']!=0):
                     print("")
-                    print("Flow type set to 'oscillation'. Simulating oscillatory shear flow...")
+                    print("Flow type set to 'oscillation'. Simulating polymers in oscillatory shear flow...")
                     d_flow_type = cuda.to_device([2]) #set flow_type to 2 for oscillation
                     d_kappa = cuda.to_device(np.array(flow['kappa'],dtype=float)) #kappa is shear strain amplitude
                     d_frequency = cuda.to_device(np.array([flow['frequency']],dtype=float))

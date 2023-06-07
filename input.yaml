@@ -21,7 +21,7 @@ sim_time: 20000
 #Nchains - number of chains in the ensemble
 #flow - 
     #flag - True/False to turn on/off flow
-    #type - planar or oscillation
+    #type - linear or oscillation
     #kappa - deformation tensor [kxx, kxy, kxz, kyx, kyy, kyz, kzx, kzy, kzz], for oscillatory shear, it becomes amplitude
     #flow_time - length of simulation to turn flow on (set to 0 < flow_time < sim_time to turn off flow during simulation)
 #CD_flag - turn on constraint dynamics (0 is off, 1 is on)

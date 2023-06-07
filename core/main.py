@@ -209,7 +209,7 @@ class FSM_LINEAR(object):
                 new_Q = np.array([[]])
                 d_new_Q = cuda.to_device(new_Q)
                 
-            if flow['type'] == 'planar':
+            if flow['type'] == 'linear':
                 if np.any(flow['kappa']!=0):                                                     
                     print("")
                     print("Flow type set to 'planar'. Simulating polymers in planar shear flow...")

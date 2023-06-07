@@ -192,29 +192,49 @@ class FSM_LINEAR(object):
         
         print('Done.')
         
-        #simulation in flow if kappa strain tensor is set
-        if np.any(np.array(self.input_data['kappa'])!=0.0):
-            print("")
-            print("Strain tensor is non-zero. Simulating polymers in flow...")
-            d_kappa = cuda.to_device(np.array(self.input_data['kappa'],dtype=float))
+        #simulation in flow if specified in input file (True/False)
+        if self.input_data['flow']['flag']:
             self.flow = True
             calc_type = 1
             self.fit = False  
-            if self.input_data['flow_time']>0 and self.input_data['flow_time']<self.input_data['sim_time']:
-                self.turn_flow_off = True
-                new_Q = np.zeros(shape=(chain.QN.shape[0],chain.QN.shape[1]),dtype=int)
-                d_new_Q = cuda.to_device(new_Q)
+            flow = self.input_data['flow']
+            
+            #check to see if flow will turn off (flow_time < sim_time)
+            if flow['flow_time']>0 and flow['flow_time']<self.input_data['sim_time']:
+                        self.turn_flow_off = True
+                        new_Q = np.zeros(shape=(chain.QN.shape[0],chain.QN.shape[1]),dtype=int)
+                        d_new_Q = cuda.to_device(new_Q)
             else:
                 self.turn_flow_off = False
                 new_Q = np.array([[]])
                 d_new_Q = cuda.to_device(new_Q)
+                
+            if flow['type'] == 'planar':
+                if np.any(flow['kappa']!=0):                                                     
+                    print("")
+                    print("Flow type set to 'planar'. Simulating polymers in planar shear flow...")
+                    d_kappa = cuda.to_device(np.array(flow['kappa'],dtype=float)) 
+                    d_flow_type = cuda.to_device([1]) #set flow_type to 1 for planar shear flow
+                else:
+                    sys.exit("Non-zero kappa tensor not set in input file.")
+            
+            if self.input_data['flow']['type'] == 'oscillation':
+                if np.any(flow['kappa']!=0):
+                    print("")
+                    print("Flow type set to 'oscillation'. Simulating oscillatory shear flow...")
+                    d_flow_type = cuda.to_device([2]) #set flow_type to 2 for oscillation
+                    d_kappa = cuda.to_device(np.array(flow['kappa'],dtype=float)) #kappa is shear strain amplitude
+                    d_frequency = cuda.to_device(np.array([flow['frequency']],dtype=float))
+                else:
+                    sys.exit("Non-zero kappa tensor not set in input file.")
         else:
             self.flow = False
             self.turn_flow_off = False
             new_Q = np.array([[]])
             d_new_Q = cuda.to_device(new_Q)
-            #determine system size for post-processing
-            d_kappa = cuda.to_device(np.array(self.input_data['kappa'],dtype=float))
+            d_kappa = cuda.to_device([0])
+            d_flow_type = cuda.to_device([0])
+            d_frequency = cuda.to_device([0])
 
         #if not flow, check for equilibrium calculation type (G(t) or MSD)
         if not self.flow:
@@ -484,8 +504,8 @@ class FSM_LINEAR(object):
                     while not reach_flag_all:
                         
                         #calculate probabilities for entangled strand of a chain (create, destroy, or shuffle)
-                        ensemble_kernel.calc_strand_prob[dimGrid, dimBlock](d_Z,d_QN,d_flow,d_tdt,d_kappa,d_tau_CD,d_shift_probs,
-                                                                              d_CDflag,d_CD_create_prefact,d_beta,d_NK)
+                        ensemble_kernel.calc_strand_prob[dimGrid, dimBlock](d_Z,d_QN,d_flow,d_tdt,d_tau_CD,d_shift_probs,
+                                                                              d_CDflag,d_CD_create_prefact,d_beta,d_NK,d_flow_type,d_kappa,d_frequency,d_chain_time)
 
                         ensemble_kernel.calc_chainends_prob[blockspergrid, threadsperblock](d_Z, d_QN, d_shift_probs, d_CDflag, d_CD_create_prefact, d_beta, d_NK)
 

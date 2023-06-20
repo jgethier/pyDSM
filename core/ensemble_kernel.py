@@ -2,17 +2,35 @@ import math
 from numba import cuda, float32, int32
 
 @cuda.jit(device=True)
-def apply_flow(Q,dt,kappa):
+def apply_constant_flow(Q,dt,kappa):
     '''
     Device function (run on GPU) to apply shear flow to ensemble of chains
     Args: 
         Q - strand conformation
         dt - chain time step
-        kappa - strain tensor
+        kappa - strain rate tensor
     Returns: 
         deformed strand orientation
     '''
     return Q[0] + dt*kappa[0]*Q[0] + dt*kappa[1]*Q[1] + dt*kappa[2]*Q[2], Q[1] + dt*kappa[3]*Q[0] + dt*kappa[4]*Q[1] + dt*kappa[5]*Q[2], Q[2] + dt*kappa[6]*Q[0] + dt*kappa[7]*Q[1] + dt*kappa[8]*Q[2], Q[3]
+
+
+@cuda.jit(device=True)
+def apply_oscillatory_flow(Q,dt,kappa,frequency,time):
+    '''
+    Device function (run on GPU) to apply oscillatory shear flow to ensemble of chains
+    Args: 
+        Q - strand conformation
+        dt - chain time step
+        kappa - strain rate amplitude tensor (strain amplitude*frequency)
+        frequency - frequency of oscillations
+        time - chain time
+    Returns: 
+        deformed strand orientation
+    '''
+    
+    return Q[0] + dt*kappa[0]*math.cos(frequency*time)*Q[0] + dt*kappa[1]*math.cos(frequency*time)*Q[1] + dt*kappa[2]*math.cos(frequency*time)*Q[2], Q[1] + dt*kappa[3]*math.cos(frequency*time)*Q[0] + dt*kappa[4]*math.cos(frequency*time)*Q[1] + dt*kappa[5]*math.cos(frequency*time)*Q[2], Q[2] + dt*kappa[6]*math.cos(frequency*time)*Q[0] + dt*kappa[7]*math.cos(frequency*time)*Q[1] + dt*kappa[8]*math.cos(frequency*time)*Q[2], Q[3]
+
 
 @cuda.jit
 def reset_chain_flag(reach_flag):
@@ -33,6 +51,7 @@ def reset_chain_flag(reach_flag):
 
     return 
 
+
 @cuda.jit
 def reset_chain_time(chain_time,write_time,flow_time):
     '''
@@ -48,6 +67,7 @@ def reset_chain_time(chain_time,write_time,flow_time):
     write_time[i] = 0
 
     return
+
 
 @cuda.jit
 def track_newQ(Z,new_Q,temp_Q,found_shift,found_index,reach_flag):
@@ -101,6 +121,7 @@ def track_newQ(Z,new_Q,temp_Q,found_shift,found_index,reach_flag):
     else:
         return   
 
+    
 @cuda.jit
 def calc_flow_stress(Z,QN,stress):
     '''
@@ -139,7 +160,7 @@ def calc_flow_stress(Z,QN,stress):
 
         
 @cuda.jit
-def calc_strand_prob(Z,QN,flow,tdt,kappa,tau_CD,shift_probs,CD_flag,CD_create_prefact,beta,NK):
+def calc_strand_prob(Z,QN,flow,tdt,tau_CD,shift_probs,CD_flag,CD_create_prefact,beta,NK,flow_type,kappa,frequency,chain_time):
     '''
     GPU kernel to calculate probabilities for Kuhn step shuffling, entanglement creation or destruction
     
@@ -176,9 +197,16 @@ def calc_strand_prob(Z,QN,flow,tdt,kappa,tau_CD,shift_probs,CD_flag,CD_create_pr
     QN_i = QN[i, j, :]
     
     if bool(flow[0]):
-        dt = tdt[i]
-        QN[i,j,:] = apply_flow(QN_i,dt,kappa)
-        cuda.syncthreads()
+        if flow_type[0]==1:
+            dt = tdt[i]
+            QN[i,j,:] = apply_constant_flow(QN_i,dt,kappa)
+            cuda.syncthreads()
+        if flow_type[0]==2:
+            dt = tdt[i]
+            time = chain_time[i]
+            QN[i,j,:] = apply_oscillatory_flow(QN_i,dt,kappa,frequency[0],time)
+            cuda.syncthreads()
+            
     
     if j<tz-1:
         

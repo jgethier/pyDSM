@@ -1,42 +1,31 @@
 beta: 1
 architecture: linear
-NK: 71
+NK: 29
 Nchains: 4000
-kappa: 
-- 0.0
-- 0.0023
-- 0.0
-- 0.0
-- 0.0
-- 0.0 
-- 0.0 
-- 0.0 
-- 0.0
+flow:
+    flag: True
+    type: oscillation
+    kappa: [0.0, 0.0023, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    frequency: 0.001
+    flow_time: 20000
 CD_flag: 1
 PD_flag: 0
 EQ_calc: stress
 tau_K: 1
-flow_time: 30000
-sim_time: 230000
+sim_time: 20000
 
 #INPUT FILE STRUCTURE
 #beta - entanglement activity (1 for CFSM)
-#architecture - only 'linear' available currently, 'linear' uses analytical expressions for p_cd(tau) statistics
+#architecture - only 'linear' is currently available, 'linear' uses analytical expressions for p_cd(tau) statistics
 #NK - total number of Kuhn steps in chain
-#Nchains - number of chains in the ensemble 
-#kappa - deformation tensor (set for flow simulation)
-# -kxx
-# -kxy
-# -kxz
-# -kyx
-# -kyy
-# -kyz
-# -kzx
-# -kzy
-# -kzz
+#Nchains - number of chains in the ensemble
+#flow - 
+    #flag - True/False to turn on/off flow
+    #type - constant or oscillation
+    #kappa - strain-rate tensor [kxx, kxy, kxz, kyx, kyy, kyz, kzx, kzy, kzz], for oscillatory shear, it becomes strain-rate amplitude (strain = kappa/freq.*sin(freq.*t))
+    #flow_time - length of simulation to turn flow on (set to 0 < flow_time < sim_time to turn off flow during simulation)
 #CD_flag - turn on constraint dynamics (0 is off, 1 is on)
 #PD_flag - use polydispersity in ensemble (currently not available)
 #EQ_calc - options: stress or msd, determines whether G(t) or MSD is calculated
 #tau_K - time step resolution for stress calculation, minimum value is 1
 #sim_time: total simulation time (tau_K)
-#flow_time (optional): total flow time (set to 0 < flow_time < sim_time to turn off flow during simulation)

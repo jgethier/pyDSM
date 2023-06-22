@@ -69,13 +69,16 @@ def write_stress(input_data,flow,turn_flow_off,num_sync,time,stress_array,output
         else:
             time_index = 0
     else: #do not include the t=0 spot of array (only used for first time sync)
-        time_index = 1
+        if flow:
+            time_index = 1
+        else:
+            time_index = 0
     
     #set time array depending on num_sync
     time_resolution = input_data['tau_K']
     time_array = np.arange(old_sync_time,time+time_resolution/2.0,time_resolution)
     if not flow and turn_flow_off:
-        time_array = np.arange(old_sync_time,(time+input_data['flow_time'])+time_resolution/2.0,time_resolution)
+        time_array = np.arange(old_sync_time,(time+input_data['flow']['flow_time']),time_resolution)
     time_array = np.reshape(time_array[time_index:],(1,len(time_array[time_index:])))
     len_array = len(time_array[0])+1
     
@@ -110,7 +113,7 @@ def write_stress(input_data,flow,turn_flow_off,num_sync,time,stress_array,output
     
     #keeping track of the last simulation time for beginning of next array
     if not flow and turn_flow_off:
-        old_sync_time = time + input_data['flow_time']
+        old_sync_time = time + input_data['flow']['flow_time']
     else:
         old_sync_time = time
     

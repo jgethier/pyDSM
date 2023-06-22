@@ -197,34 +197,35 @@ class FSM_LINEAR(object):
             self.flow = True
             calc_type = 1
             self.fit = False  
-            flow = self.input_data['flow']
+            flow_input = self.input_data['flow']
             
             #check to see if flow will turn off (flow_time < sim_time)
-            if flow['flow_time']>0 and flow['flow_time']<self.input_data['sim_time']:
-                        self.turn_flow_off = True
-                        new_Q = np.zeros(shape=(chain.QN.shape[0],chain.QN.shape[1]),dtype=int)
-                        d_new_Q = cuda.to_device(new_Q)
+            if flow_input['flow_time']>0 and flow_input['flow_time']<self.input_data['sim_time']:
+                self.turn_flow_off = True
+                new_Q = np.zeros(shape=(chain.QN.shape[0],chain.QN.shape[1]),dtype=int)
+                d_new_Q = cuda.to_device(new_Q)
             else:
                 self.turn_flow_off = False
                 new_Q = np.array([[]])
                 d_new_Q = cuda.to_device(new_Q)
                 
-            if flow['type'] == 'constant':
-                if np.any(flow['kappa']!=0):                                                     
+            if flow_input['type'] == 'constant':
+                if np.any(flow_input['kappa']!=0):                                                     
                     print("")
                     print("Flow type set to 'constant'. Simulating polymers in constant shear flow...")
-                    d_kappa = cuda.to_device(np.array(flow['kappa'],dtype=float)) 
-                    d_flow_type = cuda.to_device([1]) #set flow_type to 1 for planar shear flow
+                    d_kappa = cuda.to_device(np.array(flow_input['kappa'],dtype=float)) 
+                    d_flow_type = cuda.to_device([0]) #set flow_type to 1 for planar shear flow
+                    d_frequency = cuda.to_device([0])
                 else:
                     sys.exit("Non-zero kappa tensor not set in input file.")
             
-            if self.input_data['flow']['type'] == 'oscillation':
-                if np.any(flow['kappa']!=0):
+            if flow_input['type'] == 'oscillation':
+                if np.any(flow_input['kappa']!=0):
                     print("")
                     print("Flow type set to 'oscillation'. Simulating polymers in oscillatory shear flow...")
-                    d_flow_type = cuda.to_device([2]) #set flow_type to 2 for oscillation
-                    d_kappa = cuda.to_device(np.array(flow['kappa'],dtype=float)) #kappa is shear strain amplitude
-                    d_frequency = cuda.to_device(np.array([flow['frequency']],dtype=float))
+                    d_flow_type = cuda.to_device([1]) #set flow_type to 2 for oscillation
+                    d_kappa = cuda.to_device(np.array(flow_input['kappa'],dtype=float)) #kappa is shear strain amplitude
+                    d_frequency = cuda.to_device(np.array([flow_input['frequency']],dtype=float))
                 else:
                     sys.exit("Non-zero kappa tensor not set in input file.")
         else:
@@ -328,9 +329,9 @@ class FSM_LINEAR(object):
             res = np.zeros(shape=(chain.QN.shape[0],1,8),dtype=float) #initialize result array (stress or CoM)
             num_time_syncs = int(math.ceil(self.input_data['sim_time'] / max_sync_time))
             if self.turn_flow_off:
-                num_time_syncs_flow = int(math.ceil(self.input_data['flow_time'] / max_sync_time))
+                num_time_syncs_flow = int(math.ceil(flow_input['flow_time'] / max_sync_time))
                 max_sync_time_afterflow = 250*self.input_data['tau_K']
-                num_time_syncs_afterflow = int(math.ceil((self.input_data['sim_time']-self.input_data['flow_time'])/max_sync_time_afterflow))
+                num_time_syncs_afterflow = int(math.ceil((self.input_data['sim_time']-flow_input['flow_time'])/max_sync_time_afterflow))
         
         else: #if not flow, set chain sync times based on data array length and initialize result array
             max_sync_time = self.input_data['sim_time']
@@ -483,20 +484,20 @@ class FSM_LINEAR(object):
                     
                     #if simulating shear flow and flow time is less than total simulation time, turn off flow when flow time is reached
                     if self.flow and self.turn_flow_off:
-                        if next_sync_time>self.input_data['flow_time'] and self.flow:
+                        if next_sync_time>flow_input['flow_time'] and self.flow:
                             print('Turning off flow, equilibrium variables will now be tracked.')
                             self.flow=False
                             max_sync_time = max_sync_time_afterflow
                             d_flow = cuda.to_device([self.flow])
-                            res = np.zeros(shape=(chain.QN.shape[0],251,8),dtype=float)
+                            res = np.zeros(shape=(chain.QN.shape[0],250,8),dtype=float)
                             d_res = cuda.to_device(res)
-                            ensemble_kernel.reset_chain_time[blockspergrid, threadsperblock](d_chain_time,d_write_time,self.input_data['flow_time'])
+                            ensemble_kernel.reset_chain_time[blockspergrid, threadsperblock](d_chain_time,d_write_time,flow_input['flow_time'])
                             temp_Q = np.zeros(shape=(chain.QN.shape[0],chain.QN.shape[1]+1),dtype=int)
                             d_temp_Q = cuda.to_device(temp_Q)
                     
                     if not self.flow and self.turn_flow_off:
                         if (x_sync+1)==num_time_syncs:
-                            next_sync_time = self.input_data['sim_time'] - self.input_data['flow_time']
+                            next_sync_time = self.input_data['sim_time'] - flow_input['flow_time']
                         else:
                             next_sync_time = (x_sync+1-num_time_syncs_flow)*max_sync_time
 
@@ -589,7 +590,7 @@ class FSM_LINEAR(object):
                             sum_time = 0
                             if self.correlator == 'rsvl' or self.flow or self.turn_flow_off:
                                 if self.turn_flow_off and not self.flow:
-                                    sum_time = int(np.sum(np.floor(check_time+self.input_data['flow_time'])))
+                                    sum_time = int(np.sum(np.floor(check_time+flow_input['flow_time'])))
                                 else:
                                     sum_time = int(np.sum(np.floor(check_time)))
                                 total_progress = round(sum_time/self.input_data['Nchains']/self.input_data['sim_time'],2)

@@ -70,7 +70,7 @@ def reset_chain_time(chain_time,write_time,flow_time):
 
 
 @cuda.jit
-def track_newQ(Z,new_Q,temp_Q,found_shift,found_index,reach_flag,stall_flag):
+def track_newQ(Z,new_Q,temp_Q,found_shift,found_index,reach_flag):
     '''
     GPU kernel to track fraction of new entanglements after cessation of flow.
 
@@ -89,9 +89,6 @@ def track_newQ(Z,new_Q,temp_Q,found_shift,found_index,reach_flag,stall_flag):
         return
 
     if reach_flag[i]!=0:
-        return
-    
-    if stall_flag[i]!=0:
         return
     
     jumpIdx = int(found_index[i])
@@ -203,11 +200,11 @@ def calc_strand_prob(Z,QN,flow,tdt,tau_CD,shift_probs,CD_flag,CD_create_prefact,
     QN_i = QN[i, j, :]
     
     if bool(flow[0]):
-        if flow_type[0]==1:
+        if flow_type[0]==0:
             dt = tdt[i]
             QN[i,j,:] = apply_constant_flow(QN_i,dt,kappa)
             cuda.syncthreads()
-        if flow_type[0]==2:
+        if flow_type[0]==1:
             dt = tdt[i]
             time = chain_time[i]
             QN[i,j,:] = apply_oscillatory_flow(QN_i,dt,kappa,frequency[0],time)
@@ -649,6 +646,9 @@ def time_control_kernel(Z,QN,new_Q,QN_first,NK,chain_time,tdt,result,calc_type,f
         reach_flag[i] = 1
         stall_flag[i] = 0
         tdt[i] = 0.0
+
+        if not bool(flow[0]) and bool(flow_off[0]):
+            write_time[i] = 0
         
         return
         
@@ -697,22 +697,12 @@ def time_control_kernel(Z,QN,new_Q,QN_first,NK,chain_time,tdt,result,calc_type,f
                 result[i,result_index,2] = chain_com[2] + QN_1[2]
                 result[i,result_index,3] = 1.0
 
-            write_time[i] += 1
-            if chain_time[i] > write_time[i]*time_res[0]:
-                stall_flag[i]=1
-            else:
-                stall_flag[i]=0
-            return
-                
-        
+
         if not bool(flow[0]) and bool(flow_off[0]): #track equilibrium variables after cessation of flow
             
             tz = int(Z[i])
 
-            if int((chain_time[i]%max_sync_time)/time_res[0])==0 and write_time[i] != 0:
-                arr_index = int(max_sync_time/time_res[0])
-            else:
-                arr_index = int((chain_time[i]%max_sync_time)/time_res[0])
+            arr_index = write_time[i]
 
             stress_xx = stress_yy = stress_zz = stress_xy = stress_yz = stress_xz = 0.0
             count_new_Q = 0
@@ -734,16 +724,18 @@ def time_control_kernel(Z,QN,new_Q,QN_first,NK,chain_time,tdt,result,calc_type,f
             result[i,arr_index,4] = stress_yz
             result[i,arr_index,5] = stress_xz
             result[i,arr_index,6] = tz
-            result[i,arr_index,7] = count_new_Q/(tz-1)
-            
-
-            write_time[i]+=1
-            if chain_time[i] > write_time[i]*time_res[0]:
-                stall_flag[i]=1
+            if count_new_Q != 0:
+                result[i,arr_index,7] = count_new_Q/(tz-1)
             else:
-                stall_flag[i]=0
-            
-            return
+                result[i,arr_index,7] = 0
+
+        write_time[i]+=1
+        if chain_time[i] > write_time[i]*time_res[0]:
+            stall_flag[i]=1
+        else:
+            stall_flag[i]=0
+        
+        return
         
         
     

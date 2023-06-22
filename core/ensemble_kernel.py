@@ -70,7 +70,7 @@ def reset_chain_time(chain_time,write_time,flow_time):
 
 
 @cuda.jit
-def track_newQ(Z,new_Q,temp_Q,found_shift,found_index,reach_flag):
+def track_newQ(Z,new_Q,temp_Q,found_shift,found_index,reach_flag,stall_flag):
     '''
     GPU kernel to track fraction of new entanglements after cessation of flow.
 
@@ -89,6 +89,9 @@ def track_newQ(Z,new_Q,temp_Q,found_shift,found_index,reach_flag):
         return
 
     if reach_flag[i]!=0:
+        return
+    
+    if stall_flag[i]!=0:
         return
     
     jumpIdx = int(found_index[i])

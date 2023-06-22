@@ -455,7 +455,7 @@ class FSM_LINEAR(object):
         with alive_bar(**progress_bar) as bar:
 
             #defer memory deallocation until after simulation is done
-            with cuda.defer_cleanup():
+            # with cuda.defer_cleanup():
                 
                 #start loop over number of times chains are synced
                 for x_sync in range(0,num_time_syncs):
@@ -535,7 +535,7 @@ class FSM_LINEAR(object):
 
                         #if flow is turned off, track fraction of new entanglements
                         if not self.flow and self.turn_flow_off:
-                            ensemble_kernel.track_newQ[blockspergrid,threadsperblock](d_Z,d_new_Q,d_temp_Q,d_found_shift,d_found_index,d_reach_flag)
+                            ensemble_kernel.track_newQ[blockspergrid,threadsperblock](d_Z,d_new_Q,d_temp_Q,d_found_shift,d_found_index,d_reach_flag,d_stall_flag)
 
                             
                         #apply jump move for each chain and update time of chain

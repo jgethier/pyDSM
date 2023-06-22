@@ -97,7 +97,7 @@ def track_newQ(Z,new_Q,temp_Q,found_shift,found_index,reach_flag,stall_flag):
     jumpIdx = int(found_index[i])
     jumpType = int(found_shift[i])
     tz = int(Z[i])
-    
+
     if jumpType == 4 or jumpType == 6:
         for j in range(1,tz):
             temp_Q[i,j] = new_Q[i,j-1]
@@ -108,11 +108,11 @@ def track_newQ(Z,new_Q,temp_Q,found_shift,found_index,reach_flag,stall_flag):
             new_Q[i,entIdx] = temp_Q[i,entIdx]
         new_Q[i,jumpIdx] = 1
     
-    elif jumpType == 3:
+    if jumpType == 3:
         new_Q[i,jumpIdx+1] = 0
         new_Q[i,jumpIdx] = 1
 
-    elif jumpType == 2 or jumpType == 5:
+    if jumpType == 2 or jumpType == 5:
         if jumpIdx < tz-2:
             new_Q[i,jumpIdx] = new_Q[i,jumpIdx+1]
             #shift all strands -1 in array for deleted strand
@@ -121,8 +121,8 @@ def track_newQ(Z,new_Q,temp_Q,found_shift,found_index,reach_flag,stall_flag):
         elif jumpIdx == tz-2:
             new_Q[i,jumpIdx] = 0
             new_Q[i,jumpIdx+1] = 0
-    else:
-        return   
+    
+    return   
 
     
 @cuda.jit

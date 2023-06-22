@@ -92,8 +92,8 @@ def write_stress(input_data,flow,turn_flow_off,num_sync,time,stress_array,output
         else:
             stress = np.array([np.mean(stress_array[:,:,i],axis=0) for i in range(0,8)])
             error = np.array([np.std(stress_array[:,:,i],axis=0)/np.sqrt(input_data['Nchains']) for i in range(0,8)])
-            stress = np.reshape(stress[:,time_index:len_array],(8,len(stress_array[0,time_index:len_array,0])))
-            error = np.reshape(error[:,time_index:len_array],(8,len(stress_array[0,time_index:len_array,0])))
+            stress = np.reshape(stress,(8,len(stress_array[0,:,0])))
+            error = np.reshape(error,(8,len(stress_array[0,:,0])))
         combined = np.hstack((time_array.T, stress.T, error.T))
     else:
         stress = np.reshape(stress_array[:,time_index:len_array,0],(input_data['Nchains'],len(stress_array[0,time_index:len_array,0])))    

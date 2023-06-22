@@ -1,16 +1,16 @@
-beta: 1
+beta: 11.5
 architecture: linear
-NK: 29
-Nchains: 4000
+NK: 105
+Nchains: 100
 flow:
-    flag: True
+    flag: False
     type: oscillation
     kappa: [0.0, 0.0023, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
     frequency: 0.001
     flow_time: 20000
 CD_flag: 1
 PD_flag: 0
-EQ_calc: stress
+EQ_calc: msd
 tau_K: 1
 sim_time: 20000
 

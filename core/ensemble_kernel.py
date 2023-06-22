@@ -70,7 +70,7 @@ def reset_chain_time(chain_time,write_time,flow_time):
 
 
 @cuda.jit
-def track_newQ(Z,new_Q,temp_Q,found_shift,found_index,reach_flag):
+def track_newQ(Z,new_Q,temp_Q,found_shift,found_index,reach_flag,stall_flag):
     '''
     GPU kernel to track fraction of new entanglements after cessation of flow.
 
@@ -89,6 +89,9 @@ def track_newQ(Z,new_Q,temp_Q,found_shift,found_index,reach_flag):
         return
 
     if reach_flag[i]!=0:
+        return
+    
+    if stall_flag[i]!=0:
         return
     
     jumpIdx = int(found_index[i])
@@ -160,7 +163,7 @@ def calc_flow_stress(Z,QN,stress):
 
         
 @cuda.jit
-def calc_strand_prob(Z,QN,flow,tdt,tau_CD,shift_probs,CD_flag,CD_create_prefact,beta,NK,flow_type,kappa,frequency,chain_time):
+def calc_strand_prob(Z,QN,flow,tdt,tau_CD,shift_probs,CD_flag,CD_create_prefact,beta,NK,flow_type,kappa,frequency,chain_time,stall_flag):
     '''
     GPU kernel to calculate probabilities for Kuhn step shuffling, entanglement creation or destruction
     
@@ -179,6 +182,9 @@ def calc_strand_prob(Z,QN,flow,tdt,tau_CD,shift_probs,CD_flag,CD_create_prefact,
     '''
     i = cuda.blockIdx.x*cuda.blockDim.x + cuda.threadIdx.x #chain index
     j = cuda.blockIdx.y*cuda.blockDim.y + cuda.threadIdx.y #strand index
+
+    if stall_flag[i]!=0:
+        return
 
     if i >= QN.shape[0]:
         return
@@ -262,7 +268,7 @@ def calc_strand_prob(Z,QN,flow,tdt,tau_CD,shift_probs,CD_flag,CD_create_prefact,
 
 
 @cuda.jit
-def calc_chainends_prob(Z, QN, shift_probs, CD_flag, CD_create_prefact, beta, Nk):
+def calc_chainends_prob(Z, QN, shift_probs, CD_flag, CD_create_prefact, beta, Nk, stall_flag):
     '''
     GPU kernel to calculate probabilities for Kuhn step shuffling, entanglement creation or destruction at chain ends
     
@@ -279,6 +285,9 @@ def calc_chainends_prob(Z, QN, shift_probs, CD_flag, CD_create_prefact, beta, Nk
     '''
     i = cuda.blockIdx.x*cuda.blockDim.x + cuda.threadIdx.x #chain index
 
+    if stall_flag[i]!=0:
+        return 
+    
     if i >= QN.shape[0]:
         return
 
@@ -432,7 +441,7 @@ def calc_chainends_prob(Z, QN, shift_probs, CD_flag, CD_create_prefact, beta, Nk
 
 
 @cuda.jit
-def choose_step_kernel(Z,shift_probs,sum_W_sorted,uniform_rand,rand_used,found_index,found_shift,add_rand,CD_flag):
+def choose_step_kernel(Z,shift_probs,sum_W_sorted,uniform_rand,rand_used,found_index,found_shift,add_rand,CD_flag,stall_flag):
     '''
     GPU kernel to calculate which entanglement process will be applied to each chain (Kuhn step shuffle, entanglement creation/destruction)
     
@@ -448,6 +457,9 @@ def choose_step_kernel(Z,shift_probs,sum_W_sorted,uniform_rand,rand_used,found_i
         CD_flag - binary flag for determining whether constraint dynamics are implemented (0 - off, 1 - on)
     '''
     i = cuda.blockIdx.x*cuda.blockDim.x + cuda.threadIdx.x #chain index
+    
+    if stall_flag[i]!=0:
+        return
     
     if i >= shift_probs.shape[0]:
         return
@@ -520,7 +532,7 @@ def choose_step_kernel(Z,shift_probs,sum_W_sorted,uniform_rand,rand_used,found_i
     return
 
 @cuda.jit
-def time_control_munch_kernel(Z,QN,QN_first,NK,chain_time,tdt,result,calc_type,reach_flag,next_sync_time,write_time,time_res,corrLevel,p,g,m):
+def time_control_munch_kernel(Z,QN,QN_first,NK,chain_time,tdt,result,calc_type,reach_flag,stall_flag,next_sync_time,write_time,time_res,corrLevel,m):
     '''
     GPU kernel to control chain times and record stress/MSD values at specific write_time to be used with on-the-fly MUnCH correlator
 
@@ -550,12 +562,13 @@ def time_control_munch_kernel(Z,QN,QN_first,NK,chain_time,tdt,result,calc_type,r
     if reach_flag[i] != 0:
         return
 
-    if (chain_time[i] >= next_sync_time) and chain_time[i] <= (write_time[i]*time_res[0]*m**corrLevel):
+    if (chain_time[i] >= next_sync_time) and next_sync_time <= (write_time[i]*time_res[0]*m**corrLevel):
         
         #if sync time is reached and stress was recorded, set reach flag to 1
         reach_flag[i] = 1
+        stall_flag[i] = 0
         tdt[i] = 0.0
-        write_time[i] = 1
+        write_time[i] = 0
         chain_time[i] -= next_sync_time
         
         return
@@ -565,9 +578,12 @@ def time_control_munch_kernel(Z,QN,QN_first,NK,chain_time,tdt,result,calc_type,r
         tz = int(Z[i])
         
         if corrLevel == 0:
-            arr_index = int(math.floor(chain_time[i]/time_res[0])/(m**corrLevel))
+            arr_index = int(write_time[i])
         else:
-            arr_index = int(math.floor((chain_time[i]+p*g*m**corrLevel*time_res[0])/time_res[0])/(m**corrLevel))
+            arr_index = int(write_time[i]+1024)
+
+        if i == 41:
+            print(arr_index,chain_time[i],next_sync_time,write_time[i]*time_res[0]*m**corrLevel)
 
         if calc_type[0] == 1:
             stress_xy = stress_yz = stress_xz = 0.0 
@@ -605,12 +621,17 @@ def time_control_munch_kernel(Z,QN,QN_first,NK,chain_time,tdt,result,calc_type,r
             result[i,arr_index,2] = chain_com[2] + QN_1[2]
     
         write_time[i]+=1
+        
+        if chain_time[i] > write_time[i]*time_res[0]*m**corrLevel:
+            stall_flag[i] = 1
+        else:
+            stall_flag[i] = 0
     
     return 
 
 
 @cuda.jit
-def time_control_kernel(Z,QN,new_Q,QN_first,NK,chain_time,tdt,result,calc_type,flow,flow_off,reach_flag,next_sync_time,max_sync_time,write_time,time_res,result_index):
+def time_control_kernel(Z,QN,new_Q,QN_first,NK,chain_time,tdt,result,calc_type,flow,flow_off,reach_flag,stall_flag,next_sync_time,max_sync_time,write_time,time_res,result_index):
     '''
     GPU kernel to control chain times and record stress/MSD values at specific write_time to be used with on-the-fly RSVL correlator (similar to the above kernel)
     '''
@@ -625,10 +646,11 @@ def time_control_kernel(Z,QN,new_Q,QN_first,NK,chain_time,tdt,result,calc_type,f
     if reach_flag[i] != 0:
         return
 
-    if (chain_time[i] >= next_sync_time) and chain_time[i] <= (write_time[i]*time_res[0]):
+    if (chain_time[i] >= next_sync_time) and next_sync_time <= (write_time[i]*time_res[0]):
         
         #if sync time is reached and stress was recorded, set reach flag to 1
         reach_flag[i] = 1
+        stall_flag[i] = 0
         tdt[i] = 0.0
         
         return
@@ -638,8 +660,9 @@ def time_control_kernel(Z,QN,new_Q,QN_first,NK,chain_time,tdt,result,calc_type,f
         if not bool(flow[0]) and not bool(flow_off[0]):
             
             tz = int(Z[i])
-            
-            arr_index = result_index 
+
+            if i == 41:
+                print(chain_time[i],write_time[i])
 
             if calc_type[0] == 1:
                 stress_xy = stress_yz = stress_xz = 0.0 
@@ -649,10 +672,10 @@ def time_control_kernel(Z,QN,new_Q,QN_first,NK,chain_time,tdt,result,calc_type,f
                     stress_yz -= (3.0*QN[i,j,1]*QN[i,j,2] / QN[i,j,3]) #tau_yz
                     stress_xz -= (3.0*QN[i,j,0]*QN[i,j,2] / QN[i,j,3]) #tau_xz
                 
-                result[i,arr_index,0] = stress_xy
-                result[i,arr_index,1] = stress_yz
-                result[i,arr_index,2] = stress_xz
-                result[i,arr_index,3] = 1.0
+                result[i,result_index,0] = stress_xy
+                result[i,result_index,1] = stress_yz
+                result[i,result_index,2] = stress_xz
+                result[i,result_index,3] = 1.0
             
             elif calc_type[0] == 2:
                 QN_1 = QN_first[i,:] #need fixed frame of reference, choosing first entanglement which is tracked during simulation
@@ -675,10 +698,18 @@ def time_control_kernel(Z,QN,new_Q,QN_first,NK,chain_time,tdt,result,calc_type,f
                         chain_com[k] += term[k] * QN_i[3] / NK[0]
                         prev_QN[k] = QN_i[k]
                     
-                result[i,arr_index,0] = chain_com[0] + QN_1[0]
-                result[i,arr_index,1] = chain_com[1] + QN_1[1]
-                result[i,arr_index,2] = chain_com[2] + QN_1[2]
-                result[i,arr_index,3] = 1.0
+                result[i,result_index,0] = chain_com[0] + QN_1[0]
+                result[i,result_index,1] = chain_com[1] + QN_1[1]
+                result[i,result_index,2] = chain_com[2] + QN_1[2]
+                result[i,result_index,3] = 1.0
+
+            write_time[i] += 1
+            if chain_time[i] > write_time[i]*time_res[0]:
+                stall_flag[i]=1
+            else:
+                stall_flag[i]=0
+            return
+                
         
         if not bool(flow[0]) and bool(flow_off[0]): #track equilibrium variables after cessation of flow
             
@@ -712,15 +743,19 @@ def time_control_kernel(Z,QN,new_Q,QN_first,NK,chain_time,tdt,result,calc_type,f
             result[i,arr_index,7] = count_new_Q/(tz-1)
             
 
-        write_time[i]+=1
-    
-    return
+            write_time[i]+=1
+            if chain_time[i] > write_time[i]*time_res[0]:
+                stall_flag[i]=1
+            else:
+                stall_flag[i]=0
+            
+            return
         
         
     
 @cuda.jit
 def apply_step_kernel(Z, QN, QN_first, QN_create_SDCD, chain_time, time_compensation, sum_W_sorted,
-                 found_shift, found_index, reach_flag, tdt,
+                 found_shift, found_index, reach_flag, stall_flag, tdt,
                  t_cr, new_t_cr, f_t, tau_CD, new_tau_CD, rand_used, add_rand, tau_CD_used_SD, tau_CD_used_CD, tau_CD_gauss_rand_SD, tau_CD_gauss_rand_CD):
    
     '''
@@ -755,6 +790,9 @@ def apply_step_kernel(Z, QN, QN_first, QN_create_SDCD, chain_time, time_compensa
         return
     
     if reach_flag[i]!=0:
+        return
+    
+    if stall_flag[i]!=0:
         return
     
     tz = int(Z[i])

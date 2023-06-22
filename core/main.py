@@ -92,9 +92,9 @@ class FSM_LINEAR(object):
         #set variables and start simulation (also any post-processing after simulation is completed)
 
         #set cuda  grid dimensions
-        dimBlock = (32,32)
-        dimGrid_x = (self.input_data['Nchains']+dimBlock[0]-1)//dimBlock[0]
-        dimGrid_y = (self.input_data['NK']+dimBlock[1]-1)//dimBlock[1]
+        dimBlock = (16,16)
+        dimGrid_x = math.ceil(self.input_data['Nchains']+dimBlock[0]/dimBlock[0])
+        dimGrid_y = math.ceil(self.input_data['NK']+dimBlock[1]/dimBlock[1])
         dimGrid = (dimGrid_x,dimGrid_y)
         
         #flattened grid dimensions
@@ -307,6 +307,7 @@ class FSM_LINEAR(object):
         f_t = np.zeros(shape=self.input_data['Nchains'],dtype=float)
         write_time = np.zeros(shape=self.input_data['Nchains'],dtype=int)
         reach_flag = np.zeros(shape=self.input_data['Nchains'],dtype=int)
+        stall_flag = np.zeros(shape=self.input_data['Nchains'],dtype=int)
                 
         #initialize arrays for which chains create a slip link from sliding and/or constraint dynamics
         QN_create_SDCD = np.zeros(shape=(chain.QN.shape[0],chain.QN.shape[1]+1,4),dtype=float)
@@ -349,12 +350,12 @@ class FSM_LINEAR(object):
                 last_index = -1 #if all data in arrayLength is used, set last index to entire array
 
                 if calc_type == 1: #result array (G(t) or MSD) dimensions are set based on EQ_calc
-                    res = np.zeros(shape=(chain.QN.shape[0],arrayLength+1,1),dtype=float) #initialize result array (stress or CoM) to always hold 250 stress values per chain
+                    res = np.zeros(shape=(chain.QN.shape[0],arrayLength,1),dtype=float) #initialize result array (stress or CoM) to always hold 250 stress values per chain
                 elif calc_type == 2:
-                    res = np.zeros(shape=(chain.QN.shape[0],arrayLength+1,3),dtype=float) 
+                    res = np.zeros(shape=(chain.QN.shape[0],arrayLength,3),dtype=float) 
         
         if self.correlator=='rsvl':
-            print("Using on the fly correlator for equilibrium calculation. Uncertainty in the correlation values will not be reported.")
+            print("Using RSVL correlator for equilibrium calculations. Uncertainty in the correlation values will not be reported.")
             #initialize arrays for correlator
             D_array = np.zeros(shape=(chain.QN.shape[0],S_corr,p,3),dtype=float)
             D_shift_array = np.zeros(shape=(chain.QN.shape[0],S_corr,p,3),dtype=float)
@@ -374,6 +375,7 @@ class FSM_LINEAR(object):
         #move arrays to device
         d_QN_create_SDCD = cuda.to_device(QN_create_SDCD)
         d_reach_flag = cuda.to_device(reach_flag) 
+        d_stall_flag = cuda.to_device(stall_flag)
         d_new_t_cr = cuda.to_device(new_t_cr)
         d_new_tau_CD = cuda.to_device(new_tau_CD)
 
@@ -470,10 +472,12 @@ class FSM_LINEAR(object):
                             next_sync_time = (x_sync+1)*self.input_data['tau_K']
                         else:
                             if not self.turn_flow_off:
+
                                 correlation.coarse_result_array[blockspergrid,threadsperblock](d_res,g,d_calc_type) #keep half of result array values for block transformation
+                                
                                 if x_sync == (num_time_syncs-1):
                                     next_sync_time = self.input_data['sim_time'] - p*g*m**(x_sync)*self.input_data['tau_K']
-                                    last_index = int(math.floor((self.input_data['sim_time'])/self.input_data['tau_K'])/(m**(num_time_syncs-1)))
+                                    last_index = int(math.floor((self.input_data['sim_time'])/self.input_data['tau_K'])/(m**(num_time_syncs-1))-1)
                                 else:
                                     next_sync_time = (p*g*m**(x_sync+1) - p*g*m**(x_sync))*self.input_data['tau_K']
                     
@@ -502,29 +506,28 @@ class FSM_LINEAR(object):
                     ensemble_kernel.reset_chain_flag[blockspergrid,threadsperblock](d_reach_flag)
                     
                     while not reach_flag_all:
-                        
-                        #calculate probabilities for entangled strand of a chain (create, destroy, or shuffle)
-                        ensemble_kernel.calc_strand_prob[dimGrid, dimBlock](d_Z,d_QN,d_flow,d_tdt,d_tau_CD,d_shift_probs,
-                                                                              d_CDflag,d_CD_create_prefact,d_beta,d_NK,d_flow_type,d_kappa,d_frequency,d_chain_time)
-
-                        ensemble_kernel.calc_chainends_prob[blockspergrid, threadsperblock](d_Z, d_QN, d_shift_probs, d_CDflag, d_CD_create_prefact, d_beta, d_NK)
-
-
 
                         #control chain time and stress calculation
                         if self.correlator =='munch' and not self.flow and not self.turn_flow_off:
                             ensemble_kernel.time_control_munch_kernel[blockspergrid,threadsperblock](d_Z,d_QN,d_QN_first,d_NK,d_chain_time,
-                                                                    d_tdt,d_res,d_calc_type,d_reach_flag,next_sync_time,
-                                                                    d_write_time,d_time_resolution,x_sync,p,g,m)
+                                                                    d_tdt,d_res,d_calc_type,d_reach_flag,d_stall_flag,next_sync_time,
+                                                                    d_write_time,d_time_resolution,x_sync,m)
 
                         else:
                             ensemble_kernel.time_control_kernel[blockspergrid, threadsperblock](d_Z,d_QN,d_new_Q,d_QN_first,d_NK,d_chain_time,
-                                                                                            d_tdt,d_res,d_calc_type,d_flow,d_flow_off,d_reach_flag,next_sync_time,
+                                                                                            d_tdt,d_res,d_calc_type,d_flow,d_flow_off,d_reach_flag,d_stall_flag,next_sync_time,
                                                                                             max_sync_time,d_write_time,d_time_resolution,self.step_count%250)
+                        
+                        #calculate probabilities for entangled strand of a chain (create, destroy, or shuffle)
+                        ensemble_kernel.calc_strand_prob[dimGrid, dimBlock](d_Z,d_QN,d_flow,d_tdt,d_tau_CD,d_shift_probs,
+                                                                              d_CDflag,d_CD_create_prefact,d_beta,d_NK,d_flow_type,d_kappa,d_frequency,d_chain_time,d_stall_flag)
+
+                        ensemble_kernel.calc_chainends_prob[blockspergrid, threadsperblock](d_Z, d_QN, d_shift_probs, d_CDflag, d_CD_create_prefact, d_beta, d_NK,d_stall_flag)
+
                         
                         #find jump type and location
                         ensemble_kernel.choose_step_kernel[blockspergrid, threadsperblock](d_Z, d_shift_probs, d_sum_W_sorted, d_uniform_rand, d_rand_used, 
-                                                                                            d_found_index, d_found_shift,d_add_rand, d_CDflag)
+                                                                                            d_found_index, d_found_shift,d_add_rand, d_CDflag,d_stall_flag)
                         
                         # ensemble_kernel.choose_kernel[blockspergrid, threadsperblock](d_Z, d_shift_probs, d_sum_W_sorted, d_uniform_rand, d_rand_used, 
                         #                                                                     d_found_index, d_found_shift,d_add_rand, d_CDflag, d_NK)
@@ -537,7 +540,7 @@ class FSM_LINEAR(object):
                         #apply jump move for each chain and update time of chain
                         ensemble_kernel.apply_step_kernel[blockspergrid,threadsperblock](d_Z, d_QN, d_QN_first, d_QN_create_SDCD,
                                                                                             d_chain_time,d_time_compensation,d_sum_W_sorted,
-                                                                                            d_found_shift,d_found_index,d_reach_flag, d_tdt,
+                                                                                            d_found_shift,d_found_index,d_reach_flag,d_stall_flag, d_tdt,
                                                                                             d_t_cr, d_new_t_cr, d_f_t, d_tau_CD, d_new_tau_CD,
                                                                                             d_rand_used, d_add_rand, d_tau_CD_used_SD,
                                                                                             d_tau_CD_used_CD,d_tau_CD_gauss_rand_SD,
@@ -672,7 +675,7 @@ class FSM_LINEAR(object):
                             corr_aver.append(np.sum(C_array[:,corrLevel,j]/N_array[:,corrLevel,j])/self.input_data['Nchains'])
                     else:
                         for j in range(int(p/m),p):
-                            if j*(m**corrLevel)*self.input_data['tau_K'] <= self.input_data['sim_time']:
+                            if j*(m**corrLevel)*self.input_data['tau_K'] < self.input_data['sim_time']:
                                 corr_time.append(j*(m**corrLevel)*self.input_data['tau_K'])
                                 corr_aver.append(np.sum(C_array[:,corrLevel,j]/N_array[:,corrLevel,j])/self.input_data['Nchains'])
 

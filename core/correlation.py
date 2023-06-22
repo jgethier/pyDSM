@@ -106,7 +106,7 @@ def coarse_result_array(data,g,calc_type):
     if i >= data.shape[0]:
         return
 
-    for j in range(1,p*g+1):
+    for j in range(1,p*g):
         if calc_type[0] == 1:
             data[i,j,0]=data[i,j*m,0]
         if calc_type[0] == 2:

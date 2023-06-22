@@ -582,9 +582,6 @@ def time_control_munch_kernel(Z,QN,QN_first,NK,chain_time,tdt,result,calc_type,r
         else:
             arr_index = int(write_time[i]+1024)
 
-        if i == 41:
-            print(arr_index,chain_time[i],next_sync_time,write_time[i]*time_res[0]*m**corrLevel)
-
         if calc_type[0] == 1:
             stress_xy = stress_yz = stress_xz = 0.0 
 
@@ -660,9 +657,6 @@ def time_control_kernel(Z,QN,new_Q,QN_first,NK,chain_time,tdt,result,calc_type,f
         if not bool(flow[0]) and not bool(flow_off[0]):
             
             tz = int(Z[i])
-
-            if i == 41:
-                print(chain_time[i],write_time[i])
 
             if calc_type[0] == 1:
                 stress_xy = stress_yz = stress_xz = 0.0 

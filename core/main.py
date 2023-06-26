@@ -455,7 +455,7 @@ class FSM_LINEAR(object):
         with alive_bar(**progress_bar) as bar:
 
             #defer memory deallocation until after simulation is done
-            # with cuda.defer_cleanup():
+            with cuda.defer_cleanup():
                 
                 #start loop over number of times chains are synced
                 for x_sync in range(0,num_time_syncs):
@@ -489,7 +489,7 @@ class FSM_LINEAR(object):
                             self.flow=False
                             max_sync_time = max_sync_time_afterflow
                             d_flow = cuda.to_device([self.flow])
-                            res = np.zeros(shape=(chain.QN.shape[0],250,8),dtype=float)
+                            res = np.zeros(shape=(chain.QN.shape[0],251,8),dtype=float)
                             d_res = cuda.to_device(res)
                             ensemble_kernel.reset_chain_time[blockspergrid, threadsperblock](d_chain_time,d_write_time,flow_input['flow_time'])
                             temp_Q = np.zeros(shape=(chain.QN.shape[0],chain.QN.shape[1]+1),dtype=int)
@@ -517,7 +517,7 @@ class FSM_LINEAR(object):
                         else:
                             ensemble_kernel.time_control_kernel[blockspergrid, threadsperblock](d_Z,d_QN,d_new_Q,d_QN_first,d_NK,d_chain_time,
                                                                                             d_tdt,d_res,d_calc_type,d_flow,d_flow_off,d_reach_flag,d_stall_flag,next_sync_time,
-                                                                                            max_sync_time,d_write_time,d_time_resolution,self.step_count%250)
+                                                                                            x_sync,num_time_syncs_flow,d_write_time,d_time_resolution,self.step_count%250)
                         
                         #calculate probabilities for entangled strand of a chain (create, destroy, or shuffle)
                         ensemble_kernel.calc_strand_prob[dimGrid, dimBlock](d_Z,d_QN,d_flow,d_tdt,d_tau_CD,d_shift_probs,
@@ -624,7 +624,7 @@ class FSM_LINEAR(object):
                     #         fileio.write_com(self.input_data,x_sync+1,next_sync_time,res_host,self.output_dir,self.sim_ID)
 
                     #if not using OTF correlator, update correlations
-                    elif self.correlator=='munch':
+                    if self.correlator=='munch' and not self.flow and not self.turn_flow_off:
                         #run the block transformation and calculate correlation with error
                         correlation.calc_corr[blockspergrid,threadsperblock](d_res,d_calc_type,num_time_syncs,x_sync,d_data_corr,d_corr_array,d_corr_index,last_index, d_time_resolution, self.input_data['sim_time'])
         

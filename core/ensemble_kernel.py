@@ -628,7 +628,7 @@ def time_control_munch_kernel(Z,QN,QN_first,NK,chain_time,tdt,result,calc_type,r
 
 
 @cuda.jit
-def time_control_kernel(Z,QN,new_Q,QN_first,NK,chain_time,tdt,result,calc_type,flow,flow_off,reach_flag,stall_flag,next_sync_time,max_sync_time,write_time,time_res,result_index):
+def time_control_kernel(Z,QN,new_Q,QN_first,NK,chain_time,tdt,result,calc_type,flow,flow_off,reach_flag,stall_flag,next_sync_time,x_sync,num_time_sync_flow,write_time,time_res,result_index):
     '''
     GPU kernel to control chain times and record stress/MSD values at specific write_time to be used with on-the-fly RSVL correlator (similar to the above kernel)
     '''
@@ -643,15 +643,12 @@ def time_control_kernel(Z,QN,new_Q,QN_first,NK,chain_time,tdt,result,calc_type,f
     if reach_flag[i] != 0:
         return
 
-    if (chain_time[i] >= next_sync_time) and next_sync_time <= (write_time[i]*time_res[0]):
+    if (chain_time[i] >= next_sync_time) and next_sync_time < (write_time[i]*time_res[0]):
         
         #if sync time is reached and stress was recorded, set reach flag to 1
         reach_flag[i] = 1
         stall_flag[i] = 0
         tdt[i] = 0.0
-
-        if not bool(flow[0]) and bool(flow_off[0]):
-            write_time[i] = 0
         
         return
         
@@ -705,18 +702,18 @@ def time_control_kernel(Z,QN,new_Q,QN_first,NK,chain_time,tdt,result,calc_type,f
             
             tz = int(Z[i])
 
-            arr_index = write_time[i]
+            arr_index = write_time[i]-(x_sync-num_time_sync_flow)*250
 
             stress_xx = stress_yy = stress_zz = stress_xy = stress_yz = stress_xz = 0.0
             count_new_Q = 0
-            for j in range(0,int(Z[i])):
+            for j in range(0,tz):
                 stress_xx -= (3.0*QN[i,j,0]*QN[i,j,0] / QN[i,j,3]) #tau_xx
                 stress_yy -= (3.0*QN[i,j,1]*QN[i,j,1] / QN[i,j,3]) #tau_yy
                 stress_zz -= (3.0*QN[i,j,2]*QN[i,j,2] / QN[i,j,3]) #tau_zz
                 stress_xy -= (3.0*QN[i,j,0]*QN[i,j,1] / QN[i,j,3]) #tau_xy
                 stress_yz -= (3.0*QN[i,j,1]*QN[i,j,2] / QN[i,j,3]) #tau_yz
                 stress_xz -= (3.0*QN[i,j,0]*QN[i,j,2] / QN[i,j,3]) #tau_xz
-                if j < int(Z[i]) - 1:
+                if j < tz - 1:
                     if new_Q[i,j] == 1:
                         count_new_Q+=1
             

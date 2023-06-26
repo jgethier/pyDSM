@@ -69,19 +69,16 @@ def write_stress(input_data,flow,turn_flow_off,num_sync,time,stress_array,output
         else:
             time_index = 0
     else: #do not include the t=0 spot of array (only used for first time sync)
-        if flow:
-            time_index = 1
-        else:
-            time_index = 0
+        time_index = 1
     
     #set time array depending on num_sync
     time_resolution = input_data['tau_K']
-    time_array = np.arange(old_sync_time,time+time_resolution/2.0,time_resolution)
+    time_array = np.arange(old_sync_time,time+time_resolution/10.0,time_resolution)
     if not flow and turn_flow_off:
-        time_array = np.arange(old_sync_time,(time+input_data['flow']['flow_time']),time_resolution)
+        time_array = np.arange(old_sync_time,(time+input_data['flow']['flow_time'])+time_resolution/10.0,time_resolution)
     time_array = np.reshape(time_array[time_index:],(1,len(time_array[time_index:])))
     len_array = len(time_array[0])+1
-    
+
     #if flow, take average stress tensor over all chains, otherwise write out only tau_xy stress of all chains
     if flow or turn_flow_off:
         if flow:
@@ -90,10 +87,11 @@ def write_stress(input_data,flow,turn_flow_off,num_sync,time,stress_array,output
             stress = np.reshape(stress,(8,1))
             error = np.reshape(error,(8,1))
         else:
-            stress = np.array([np.mean(stress_array[:,:,i],axis=0) for i in range(0,8)])
-            error = np.array([np.std(stress_array[:,:,i],axis=0)/np.sqrt(input_data['Nchains']) for i in range(0,8)])
-            stress = np.reshape(stress,(8,len(stress_array[0,:,0])))
-            error = np.reshape(error,(8,len(stress_array[0,:,0])))
+            stress = np.array([np.mean(stress_array[:,1:,i],axis=0) for i in range(0,8)])
+            
+            error = np.array([np.std(stress_array[:,1:,i],axis=0)/np.sqrt(input_data['Nchains']) for i in range(0,8)])
+            stress = np.reshape(stress,(8,len(stress_array[0,1:,0])))
+            error = np.reshape(error,(8,len(stress_array[0,1:,0])))
         combined = np.hstack((time_array.T, stress.T, error.T))
     else:
         stress = np.reshape(stress_array[:,time_index:len_array,0],(input_data['Nchains'],len(stress_array[0,time_index:len_array,0])))    

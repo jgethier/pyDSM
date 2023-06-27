@@ -713,6 +713,7 @@ def time_control_kernel(Z,QN,new_Q,QN_first,NK,chain_time,tdt,result,calc_type,f
                 stress_xy -= (3.0*QN[i,j,0]*QN[i,j,1] / QN[i,j,3]) #tau_xy
                 stress_yz -= (3.0*QN[i,j,1]*QN[i,j,2] / QN[i,j,3]) #tau_yz
                 stress_xz -= (3.0*QN[i,j,0]*QN[i,j,2] / QN[i,j,3]) #tau_xz
+                
                 if j < tz - 1:
                     if new_Q[i,j] == 1:
                         count_new_Q+=1
@@ -724,7 +725,8 @@ def time_control_kernel(Z,QN,new_Q,QN_first,NK,chain_time,tdt,result,calc_type,f
             result[i,arr_index,4] = stress_yz
             result[i,arr_index,5] = stress_xz
             result[i,arr_index,6] = tz
-            if count_new_Q != 0:
+            
+            if tz>1:
                 result[i,arr_index,7] = count_new_Q/(tz-1)
             else:
                 result[i,arr_index,7] = 0

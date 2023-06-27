@@ -532,7 +532,11 @@ class FSM_LINEAR(object):
                         
                         # ensemble_kernel.choose_kernel[blockspergrid, threadsperblock](d_Z, d_shift_probs, d_sum_W_sorted, d_uniform_rand, d_rand_used, 
                         #                                                                     d_found_index, d_found_shift,d_add_rand, d_CDflag, d_NK)
-     
+
+                        #if flow is turned off, track fraction of new entanglements
+                        if not self.flow and self.turn_flow_off:
+                            ensemble_kernel.track_newQ[blockspergrid,threadsperblock](d_Z,d_new_Q,d_temp_Q,d_found_shift,d_found_index,d_reach_flag,d_stall_flag)
+                            
                         #apply jump move for each chain and update time of chain
                         ensemble_kernel.apply_step_kernel[blockspergrid,threadsperblock](d_Z, d_QN, d_QN_first, d_QN_create_SDCD,
                                                                                             d_chain_time,d_time_compensation,d_sum_W_sorted,
@@ -542,9 +546,6 @@ class FSM_LINEAR(object):
                                                                                             d_tau_CD_used_CD,d_tau_CD_gauss_rand_SD,
                                                                                             d_tau_CD_gauss_rand_CD)
                         
-                        #if flow is turned off, track fraction of new entanglements
-                        if not self.flow and self.turn_flow_off:
-                            ensemble_kernel.track_newQ[blockspergrid,threadsperblock](d_Z,d_new_Q,d_temp_Q,d_found_shift,d_found_index,d_reach_flag,d_stall_flag)
                         
                         #update step counter for arrays and array positions
                         self.step_count+=1

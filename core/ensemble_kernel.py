@@ -183,9 +183,6 @@ def calc_strand_prob(Z,QN,flow,tdt,tau_CD,shift_probs,CD_flag,CD_create_prefact,
     i = cuda.blockIdx.x*cuda.blockDim.x + cuda.threadIdx.x #chain index
     j = cuda.blockIdx.y*cuda.blockDim.y + cuda.threadIdx.y #strand index
 
-    if stall_flag[i]!=0:
-        return
-
     if i >= QN.shape[0]:
         return
 
@@ -285,8 +282,8 @@ def calc_chainends_prob(Z, QN, shift_probs, CD_flag, CD_create_prefact, beta, Nk
     '''
     i = cuda.blockIdx.x*cuda.blockDim.x + cuda.threadIdx.x #chain index
 
-    if stall_flag[i]!=0:
-        return 
+    # if stall_flag[i]!=0:
+    #     return 
     
     if i >= QN.shape[0]:
         return
@@ -527,6 +524,9 @@ def choose_step_kernel(Z,shift_probs,sum_W_sorted,uniform_rand,rand_used,found_i
             found_shift[i] = 4 #create by CD
             add_rand[i] = float(x - (sum2 - temp[3])) / float(temp[3])
     else:
+        # for j in range(0,tz+1):
+        #     temp = shift_probs[i,j,:]
+        #     print(tz, temp[0],temp[1],temp[2],temp[3])
         print("Error: no jump found for chain",i)
 
     return

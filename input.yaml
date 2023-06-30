@@ -1,18 +1,22 @@
-beta: 11.5
+beta: 22.1
 architecture: linear
-NK: 105
-Nchains: 100
+NK: 476
+Nchains: 1000
 flow:
     flag: False
-    type: oscillation
+    type: constant
     kappa: [0.0, 0.0023, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
     frequency: 0.001
-    flow_time: 20000
+    flow_time: 60000
+polydisperse:
+    flag: True
+    Mw: 130.414 #kDa
+    Mn: 113.950 #kDa
+    MK: 274.2 #Da
 CD_flag: 1
-PD_flag: 0
-EQ_calc: msd
+EQ_calc: stress
 tau_K: 1
-sim_time: 20000
+sim_time: 160000
 
 #INPUT FILE STRUCTURE
 #beta - entanglement activity (1 for CFSM)

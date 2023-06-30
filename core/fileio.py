@@ -88,7 +88,6 @@ def write_stress(input_data,flow,turn_flow_off,num_sync,time,stress_array,output
             error = np.reshape(error,(8,1))
         else:
             stress = np.array([np.mean(stress_array[:,1:,i],axis=0) for i in range(0,8)])
-            
             error = np.array([np.std(stress_array[:,1:,i],axis=0)/np.sqrt(input_data['Nchains']) for i in range(0,8)])
             stress = np.reshape(stress,(8,len(stress_array[0,1:,0])))
             error = np.reshape(error,(8,len(stress_array[0,1:,0])))

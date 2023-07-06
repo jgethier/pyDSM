@@ -70,21 +70,25 @@ def fill_gauss_rand_tauCD(rng_states, analytic, nchains, count, SDtoggle, CD_fla
                 gauss_rand[i,j,3] = tau_CD_cr(x, pcd_table_cr, pcd_table_tau)
 
         elif CD_flag == 1 and analytic:
+
             if pdi_array[0]:
                 p = xoroshiro128p_normal_float64(rng_states, i)
-                Mlognorm = (math.exp(p*pdi_array[2] + pdi_array[1]))*1000
+                Mlognorm = (math.exp(p*pdi_array[2] + pdi_array[1]))
                 NK_PD = Mlognorm/pdi_array[4]
                 while (Mlognorm > pdi_array[3]) or (NK_PD < 1):
                     p = xoroshiro128p_normal_float64(rng_states, i)
-                    Mlognorm = (math.exp(p*pdi_array[2] + pdi_array[1]))*1000
+                    Mlognorm = (math.exp(p*pdi_array[2] + pdi_array[1]))
                     NK_PD = Mlognorm/pdi_array[4]
+                
+                g, tau_D_inverse, At, Dt, Ct, Adt, Bdt, Cdt, Ddt = p_cd_linear(NK_PD,pdi_array[5])    
 
-                pcd_array[0],pcd_array[1],pcd_array[2],pcd_array[3],pcd_array[4],pcd_array[5],pcd_array[6],pcd_array[7],pcd_array[8],pcd_array[9],pcd_array[10],pcd_array[11],pcd_array[12] = p_cd_linear(NK_PD,pdi_array[5])
+            else:
+                g, tau_D_inverse, At, Dt, Ct, Adt, Bdt, Cdt, Ddt = pcd_array[0], pcd_array[5], pcd_array[6], pcd_array[7], pcd_array[8], pcd_array[9], pcd_array[10], pcd_array[11], pcd_array[12]
                     
             if SDtoggle==True:
-                gauss_rand[i,j,3] = tau_CD_f_t(x,pcd_array[6],pcd_array[8],pcd_array[7],pcd_array[5],pcd_array[0])
+                gauss_rand[i,j,3] = tau_CD_f_t(x,At,Ct,Dt,tau_D_inverse,g)
             else:
-                gauss_rand[i,j,3] = tau_CD_f_d_t(x,pcd_array[9],pcd_array[10],pcd_array[11],pcd_array[12],pcd_array[5])
+                gauss_rand[i,j,3] = tau_CD_f_d_t(x,Adt,Bdt,Cdt,Ddt,tau_D_inverse)
 
         else:
             gauss_rand[i,j,3] = 0.0
@@ -120,17 +124,22 @@ def refill_gauss_rand_tauCD(rng_states, analytic, nchains, count, SDtoggle, CD_f
         elif CD_flag == 1 and analytic:
             if pdi_array[0]:
                 p = xoroshiro128p_normal_float64(rng_states, i)
-                Mlognorm = (math.exp(p*pdi_array[2] + pdi_array[1]))*1000
+                Mlognorm = (math.exp(p*pdi_array[2] + pdi_array[1]))
                 NK_PD = Mlognorm/pdi_array[4]
                 while (Mlognorm > pdi_array[3]) or (NK_PD < 1):
-                    Mlognorm = (math.exp(p*pdi_array[2] + pdi_array[1]))*1000
+                    p = xoroshiro128p_normal_float64(rng_states, i)
+                    Mlognorm = (math.exp(p*pdi_array[2] + pdi_array[1]))
                     NK_PD = Mlognorm/pdi_array[4]
-                pcd_array[0],pcd_array[1],pcd_array[2],pcd_array[3],pcd_array[4],pcd_array[5],pcd_array[6],pcd_array[7],pcd_array[8],pcd_array[9],pcd_array[10],pcd_array[11],pcd_array[12] = p_cd_linear(NK_PD,pdi_array[5])
-
-            if SDtoggle==True:
-                gauss_rand[i,j,3] = tau_CD_f_t(x,pcd_array[6],pcd_array[8],pcd_array[7],pcd_array[5],pcd_array[0])
+                
+                g, tau_D_inverse, At, Dt, Ct, Adt, Bdt, Cdt, Ddt = p_cd_linear(NK_PD,pdi_array[5])    
+                
             else:
-                gauss_rand[i,j,3] = tau_CD_f_d_t(x,pcd_array[9],pcd_array[10],pcd_array[11],pcd_array[12],pcd_array[5])
+                g, tau_D_inverse, At, Dt, Ct, Adt, Bdt, Cdt, Ddt = pcd_array[0], pcd_array[5], pcd_array[6], pcd_array[7], pcd_array[8], pcd_array[9], pcd_array[10], pcd_array[11], pcd_array[12]
+                    
+            if SDtoggle==True:
+                gauss_rand[i,j,3] = tau_CD_f_t(x,At,Ct,Dt,tau_D_inverse,g)
+            else:
+                gauss_rand[i,j,3] = tau_CD_f_d_t(x,Adt,Bdt,Cdt,Ddt,tau_D_inverse)
 
         else:
             gauss_rand[i,j,3] = 0.0
@@ -226,6 +235,20 @@ def p_cd_linear(NK,beta):
     At = (1.0 - g)
     Adt = At * alpha / (alpha - 1.0)
     Bdt = Adt * ratio_tau_alpha
-    normdt = Bdt + g / tau_D 
+    normdt = Bdt + g / tau_D
+    
+    # pcd_array[0] = g
+    # # pcd_array[1] = alpha
+    # # pcd_array[2] = tau_0
+    # # pcd_array[3] = tau_max
+    # # pcd_array[4] = tau_D
+    # pcd_array[5] = 1.0/tau_D
+    # pcd_array[6] = 1.0*tau_alpha/At
+    # pcd_array[7] = math.pow(tau_0,alpha)
+    # pcd_array[8] = -1.0/alpha
+    # pcd_array[9] = normdt*tau_alpha/Adt
+    # pcd_array[10] = Bdt/normdt
+    # pcd_array[11] = -1.0/(alpha - 1.0)
+    # pcd_array[12] = tau_0**(alpha - 1.0)
 
-    return g,alpha,tau_0,tau_max,tau_D,1.0/tau_D,1.0*tau_alpha/At,math.pow(tau_0,alpha),-1.0/alpha,normdt*tau_alpha/Adt,Bdt/normdt,-1.0/(alpha - 1.0),tau_0**(alpha - 1.0)
+    return g, 1.0/tau_D, 1.0*tau_alpha/At, math.pow(tau_0,alpha), -1.0/alpha, normdt*tau_alpha/Adt, Bdt/normdt, -1.0/(alpha - 1.0), tau_0**(alpha - 1.0)

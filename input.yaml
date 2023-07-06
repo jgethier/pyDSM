@@ -16,7 +16,7 @@ polydisperse:
 CD_flag: 1
 EQ_calc: stress
 tau_K: 1
-sim_time: 160000
+sim_time: 10000
 
 #INPUT FILE STRUCTURE
 #beta - entanglement activity (1 for CFSM)

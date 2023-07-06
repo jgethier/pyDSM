@@ -16,13 +16,12 @@ class ensemble_chains(object):
         self.Z = np.zeros(shape=config['Nchains'],dtype=float)
 
         if self.PD_input['flag']:
-            self.W_CD_destroy_aver = []
-            Mw = self.PD_input['Mw']
-            Mn = self.PD_input['Mn']
+            Mw = self.PD_input['Mw']*1000
+            Mn = self.PD_input['Mn']*1000
             self.MK = self.PD_input['MK']
             self.mean_ = np.log(Mn**(3/2)/np.sqrt(Mw))
             self.sigma_ = np.sqrt(2*np.log(np.sqrt(Mw)/np.sqrt(Mn)))
-            self.Mmax = root_scalar(froot, args=(Mn,Mw), bracket=[20,10000], method='bisect').root*1000
+            self.Mmax = root_scalar(froot, args=(Mn,Mw), bracket=[50000,1000000], method='bisect').root
             
         return
 
@@ -136,13 +135,12 @@ class ensemble_chains(object):
         for k in range(0,tz-1):
             if self.CD_flag !=0:
                 if self.PD_input['flag']:
-                    Mlognorm = (np.exp(rng.normalvariate(0.0,1.0)*self.sigma_ + self.mean_))*1000
+                    Mlognorm = (np.exp(rng.normalvariate(0.0,1.0)*self.sigma_ + self.mean_))
                     NK_PD = Mlognorm/self.MK
                     while (Mlognorm > self.Mmax) or (NK_PD < 1):
-                        Mlognorm = (np.exp(rng.normalvariate(0.0,1.0)*self.sigma_ + self.mean_))*1000
+                        Mlognorm = (np.exp(rng.normalvariate(0.0,1.0)*self.sigma_ + self.mean_))
                         NK_PD = Mlognorm/self.MK
                     pcd.__init__(NK_PD,self.beta)
-                    self.W_CD_destroy_aver.append(pcd.W_CD_destroy_aver())
                     self.tau_CD[chainIdx,k] = pcd.tau_CD_f_t() 
                 else:
                     self.tau_CD[chainIdx,k] = pcd.tau_CD_f_t() 

@@ -11,6 +11,7 @@ import yaml
 import math
 import random as rng
 import GPUtil as GPU
+import scipy
 
 from core.chain import ensemble_chains
 from core.pcd_tau import p_cd, p_cd_linear
@@ -19,6 +20,7 @@ import core.gpu_random as gpu_rand
 import core.correlation as correlation
 from core.fit import CURVE_FIT
 import core.fileio as fileio
+from core.polydispersity import pdflognormal
 
 warnings.filterwarnings('ignore')
 
@@ -92,7 +94,7 @@ class FSM_LINEAR(object):
         #set variables and start simulation (also any post-processing after simulation is completed)
 
         #set cuda  grid dimensions
-        dimBlock = (32,32)
+        dimBlock = (16,16)
         dimGrid_x = math.ceil(self.input_data['Nchains']+dimBlock[0]/dimBlock[0])
         dimGrid_y = math.ceil(self.input_data['NK']+dimBlock[1]/dimBlock[1])
         dimGrid = (dimGrid_x,dimGrid_y)
@@ -125,9 +127,7 @@ class FSM_LINEAR(object):
                                   -1.0/(pcd.alpha - 1.0),           #11, d_Cdt
                                   pcd.tau_0**(pcd.alpha - 1.0)      #12, d_Ddt
                                   ],dtype=float)
-            
-            discrete = False #set discrete variable to False to implement analytic expression for p(tau_CD) probability
-            
+                        
             #set discrete modes to 0 (this may be better handled since it's waste of memory space)
             pcd_table_tau = np.zeros(1)
             pcd_table_cr = np.zeros(1)
@@ -167,14 +167,12 @@ class FSM_LINEAR(object):
                 pcd_table_tau[i] = pcd.tau[i]
             
             pcd_array = np.zeros(1)
-            discrete = True
 
         
         #else, set probability factors to 0
         else:
             analytic=False
             pcd=None
-            discrete = False 
             pcd_table_tau = np.zeros(1)
             pcd_table_cr = np.zeros(1)
             pcd_table_eq = np.zeros(1)
@@ -191,7 +189,22 @@ class FSM_LINEAR(object):
             chain.chain_init(m,self.input_data['NK'],z_max=self.input_data['NK'],pcd=pcd)
         
         print('Done.')
-        
+
+        if self.input_data['polydisperse']['flag']:
+            pdi_array = [True,chain.mean_,chain.sigma_,chain.Mmax,chain.MK,self.input_data['beta']]
+            d_pdi_array = cuda.to_device(pdi_array)
+            integrate_data = []
+            Mdata = []
+            for m in range(round(chain.MK),round(chain.Mmax),10):
+                Mdata.append(m)
+                f_WM = pdflognormal(m,self.input_data['polydisperse']['Mn']*1000,self.input_data['polydisperse']['Mw']*1000)
+                pcd.__init__(m/chain.MK,self.input_data['beta'])
+                pref_M = pcd.W_CD_destroy_aver()
+                integrate_data.append(f_WM*pref_M)
+            d_CD_create_prefact = cuda.to_device([scipy.integrate.simps(integrate_data,Mdata)/self.input_data['beta']])
+        else:
+            d_pdi_array = cuda.to_device([False])
+
         #simulation in flow if specified in input file (True/False)
         if self.input_data['flow']['flag']:
             self.flow = True
@@ -288,13 +301,13 @@ class FSM_LINEAR(object):
         random_state = self.seed
         self.rng_states = create_xoroshiro128p_states(threadsperblock*blockspergrid,seed=random_state)
         
-        gpu_rand.fill_gauss_rand_tauCD[blockspergrid,threadsperblock](self.rng_states, discrete, self.input_data['Nchains'], 250, True, self.input_data['CD_flag'],d_tau_CD_gauss_rand_SD, d_pcd_array, d_pcd_table_eq, 
+        gpu_rand.fill_gauss_rand_tauCD[blockspergrid,threadsperblock](self.rng_states, analytic, self.input_data['Nchains'], 250, True, self.input_data['CD_flag'], d_pdi_array, d_tau_CD_gauss_rand_SD, d_pcd_array, d_pcd_table_eq, 
                                       d_pcd_table_cr,d_pcd_table_tau)
         
         #if CD flag is 1 (constraint dynamics is on), fill random gaussian array for new strands created by CD
         if self.input_data['CD_flag'] == 1:
-            gpu_rand.fill_gauss_rand_tauCD[blockspergrid,threadsperblock](self.rng_states, discrete, self.input_data['Nchains'], 250, False, 
-                                                                         self.input_data['CD_flag'],d_tau_CD_gauss_rand_CD, d_pcd_array, 
+            gpu_rand.fill_gauss_rand_tauCD[blockspergrid,threadsperblock](self.rng_states, analytic, self.input_data['Nchains'], 250, False, 
+                                                                         self.input_data['CD_flag'],d_pdi_array,d_tau_CD_gauss_rand_CD, d_pcd_array, 
                                                                          d_pcd_table_eq, d_pcd_table_cr,d_pcd_table_tau)
         
         gpu_rand.fill_uniform_rand[blockspergrid,threadsperblock](self.rng_states, self.input_data['Nchains'], 250, d_uniform_rand)
@@ -507,7 +520,7 @@ class FSM_LINEAR(object):
                     ensemble_kernel.reset_chain_flag[blockspergrid,threadsperblock](d_reach_flag)
                     
                     while not reach_flag_all:
-
+                        
                         #control chain time and stress calculation
                         if self.correlator =='munch' and not self.flow and not self.turn_flow_off:
                             ensemble_kernel.time_control_munch_kernel[blockspergrid,threadsperblock](d_Z,d_QN,d_QN_first,d_NK,d_chain_time,
@@ -519,24 +532,26 @@ class FSM_LINEAR(object):
                                                                                             d_tdt,d_res,d_calc_type,d_flow,d_flow_off,d_reach_flag,d_stall_flag,next_sync_time,
                                                                                             x_sync,num_time_syncs_flow,d_write_time,d_time_resolution,self.step_count%250)
                         
+                        
                         #calculate probabilities for entangled strand of a chain (create, destroy, or shuffle)
                         ensemble_kernel.calc_strand_prob[dimGrid, dimBlock](d_Z,d_QN,d_flow,d_tdt,d_tau_CD,d_shift_probs,
                                                                               d_CDflag,d_CD_create_prefact,d_beta,d_NK,d_flow_type,d_kappa,d_frequency,d_chain_time,d_stall_flag)
 
                         ensemble_kernel.calc_chainends_prob[blockspergrid, threadsperblock](d_Z, d_QN, d_shift_probs, d_CDflag, d_CD_create_prefact, d_beta, d_NK,d_stall_flag)
 
-                        
+
                         #find jump type and location
                         ensemble_kernel.choose_step_kernel[blockspergrid, threadsperblock](d_Z, d_shift_probs, d_sum_W_sorted, d_uniform_rand, d_rand_used, 
-                                                                                            d_found_index, d_found_shift,d_add_rand, d_CDflag,d_stall_flag)
-                        
+                                                                                            d_found_index, d_found_shift, d_add_rand, d_CDflag, d_stall_flag)
+                  
+
                         # ensemble_kernel.choose_kernel[blockspergrid, threadsperblock](d_Z, d_shift_probs, d_sum_W_sorted, d_uniform_rand, d_rand_used, 
                         #                                                                     d_found_index, d_found_shift,d_add_rand, d_CDflag, d_NK)
 
                         #if flow is turned off, track fraction of new entanglements
                         if not self.flow and self.turn_flow_off:
                             ensemble_kernel.track_newQ[blockspergrid,threadsperblock](d_Z,d_new_Q,d_temp_Q,d_found_shift,d_found_index,d_reach_flag,d_stall_flag)
-                            
+
                         #apply jump move for each chain and update time of chain
                         ensemble_kernel.apply_step_kernel[blockspergrid,threadsperblock](d_Z, d_QN, d_QN_first, d_QN_create_SDCD,
                                                                                             d_chain_time,d_time_compensation,d_sum_W_sorted,
@@ -545,8 +560,7 @@ class FSM_LINEAR(object):
                                                                                             d_rand_used, d_add_rand, d_tau_CD_used_SD,
                                                                                             d_tau_CD_used_CD,d_tau_CD_gauss_rand_SD,
                                                                                             d_tau_CD_gauss_rand_CD)
-                        
-                        
+                                
                         #update step counter for arrays and array positions
                         self.step_count+=1
                     
@@ -560,11 +574,11 @@ class FSM_LINEAR(object):
                        
                         #if random numbers are used (max array size is 250), change out the used values with new random numbers and advance the random seed number
                         if self.step_count % 250 == 0:
-                            gpu_rand.refill_gauss_rand_tauCD[blockspergrid,threadsperblock](self.rng_states, discrete, self.input_data['Nchains'], d_tau_CD_used_SD, True, self.input_data['CD_flag'], 
-                                                                                            d_tau_CD_gauss_rand_SD, d_pcd_array,d_pcd_table_eq,d_pcd_table_cr, d_pcd_table_tau)
+                            gpu_rand.refill_gauss_rand_tauCD[blockspergrid,threadsperblock](self.rng_states, analytic, self.input_data['Nchains'], d_tau_CD_used_SD, True, self.input_data['CD_flag'], 
+                                                                                            d_pdi_array,d_tau_CD_gauss_rand_SD, d_pcd_array,d_pcd_table_eq,d_pcd_table_cr, d_pcd_table_tau)
                             if self.input_data['CD_flag'] == 1:
-                                gpu_rand.refill_gauss_rand_tauCD[blockspergrid,threadsperblock](self.rng_states, discrete, self.input_data['Nchains'], d_tau_CD_used_CD, False, self.input_data['CD_flag'], 
-                                                                                            d_tau_CD_gauss_rand_CD, d_pcd_array,d_pcd_table_eq,d_pcd_table_cr, d_pcd_table_tau)
+                                gpu_rand.refill_gauss_rand_tauCD[blockspergrid,threadsperblock](self.rng_states, analytic, self.input_data['Nchains'], d_tau_CD_used_CD, False, self.input_data['CD_flag'], 
+                                                                                            d_pdi_array,d_tau_CD_gauss_rand_CD, d_pcd_array,d_pcd_table_eq,d_pcd_table_cr, d_pcd_table_tau)
                            
                             gpu_rand.refill_uniform_rand[blockspergrid,threadsperblock](self.rng_states, self.input_data['Nchains'], d_rand_used, d_uniform_rand)
                         

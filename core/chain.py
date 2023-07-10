@@ -1,6 +1,8 @@
 import numpy as np
 import math
 import random as rng
+from core.polydispersity import froot
+from scipy.optimize import root_scalar
 
 class ensemble_chains(object):
 
@@ -8,10 +10,19 @@ class ensemble_chains(object):
         
         self.beta = config['beta']
         self.CD_flag = config['CD_flag']
+        self.PD_input = config['polydisperse']
         self.QN = np.zeros(shape=(config['Nchains'],config['NK'],4),dtype=float)
         self.tau_CD = np.zeros(shape=(config['Nchains'],config['NK']),dtype=float)
         self.Z = np.zeros(shape=config['Nchains'],dtype=float)
 
+        if self.PD_input['flag']:
+            Mw = self.PD_input['Mw']*1000
+            Mn = self.PD_input['Mn']*1000
+            self.MK = self.PD_input['MK']
+            self.mean_ = np.log(Mn**(3/2)/np.sqrt(Mw))
+            self.sigma_ = np.sqrt(2*np.log(np.sqrt(Mw)/np.sqrt(Mn)))
+            self.Mmax = root_scalar(froot, args=(Mn,Mw), bracket=[50000,1000000], method='bisect').root
+            
         return
 
     
@@ -119,7 +130,27 @@ class ensemble_chains(object):
         return Qx,Qy,Qz
 
 
-    def chain_init(self, chainIdx, Nk, z_max, pcd=None, dangling_begin=True, PD_flag=False):
+    def tau_CD_dist(self,chainIdx,tz,pcd=None):
+
+        for k in range(0,tz-1):
+            if self.CD_flag !=0:
+                if self.PD_input['flag']:
+                    Mlognorm = (np.exp(rng.normalvariate(0.0,1.0)*self.sigma_ + self.mean_))
+                    NK_PD = Mlognorm/self.MK
+                    while (Mlognorm > self.Mmax) or (NK_PD < 1):
+                        Mlognorm = (np.exp(rng.normalvariate(0.0,1.0)*self.sigma_ + self.mean_))
+                        NK_PD = Mlognorm/self.MK
+                    pcd.__init__(NK_PD,self.beta)
+                    self.tau_CD[chainIdx,k] = pcd.tau_CD_f_t() 
+                else:
+                    self.tau_CD[chainIdx,k] = pcd.tau_CD_f_t() 
+            else:
+                self.tau_CD[chainIdx,k] = 0.0
+
+        return
+
+
+    def chain_init(self, chainIdx, Nk, z_max, pcd=None, dangling_begin=True):
         '''
         Initialize all chains in the ensemble
 
@@ -129,7 +160,6 @@ class ensemble_chains(object):
             z_max - maximum number of entangled strands each chain can have (currently, set to Nk)
             pcd - probability density for the entanglement to have a characteristic CD lifetime
             dangling_begin - boolean to determine whether the chain ends are free or not (#TODO: currently not implemented)
-            PD_flag - boolean value to implement polydispersity (#TODO: currently not implemented)
 
         Returns:
             None - sets the initialized class objects for each chain including slip-link orientations Q, Kuhn steps N, entangled strands Z, probability densities for CD, etc.
@@ -139,12 +169,7 @@ class ensemble_chains(object):
         tz = self.z_dist_truncated(Nk,z_max)
         self.Z[chainIdx] = tz
 
-        for k in range(0,tz-1):
-            if self.CD_flag !=0:
-                self.tau_CD[chainIdx,k] = pcd.tau_CD_f_t() 
-            
-            else:
-                self.tau_CD[chainIdx,k] = 0.0
+        self.tau_CD_dist(chainIdx,tz,pcd=pcd)
 
         tN = self.N_dist(tz,Nk)
         Qx,Qy,Qz = self.Q_dist(tz, tN)

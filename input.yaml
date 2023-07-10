@@ -28,8 +28,12 @@ sim_time: 10000
     #type - constant or oscillation
     #kappa - strain-rate tensor [kxx, kxy, kxz, kyx, kyy, kyz, kzx, kzy, kzz], for oscillatory shear, it becomes strain-rate amplitude (strain = kappa/freq.*sin(freq.*t))
     #flow_time - length of simulation to turn flow on (set to 0 < flow_time < sim_time to turn off flow during simulation)
+#polydisperse 
+    #flag - True/False to implement polydisperse background (assumed log-normal distribution)
+    #Mw - weight-average molecular weight in kDa
+    #Mn - number-average molecular weight in kDa
+    #MK - molecular weight of Kuhn step (or Mc if beta = 1; experimental parameter dependent on chemistry)
 #CD_flag - turn on constraint dynamics (0 is off, 1 is on)
-#PD_flag - use polydispersity in ensemble (currently not available)
-#EQ_calc - options: stress or msd, determines whether G(t) or MSD is calculated
+#EQ_calc - options: 'stress' or 'msd', determines whether G(t) or MSD is calculated
 #tau_K - time step resolution for stress calculation, minimum value is 1
 #sim_time: total simulation time (tau_K)

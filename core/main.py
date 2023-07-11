@@ -340,9 +340,8 @@ class FSM_LINEAR(object):
         if self.flow: #if flow, set chain sync time to tau_K
             max_sync_time = self.input_data['tau_K']
             res = np.zeros(shape=(chain.QN.shape[0],1,8),dtype=float) #initialize result array (stress or CoM)
-            num_time_syncs = int(math.ceil(self.input_data['sim_time'] / max_sync_time))
+            num_time_syncs_flow = int(math.ceil(flow_input['flow_time'] / max_sync_time))
             if self.turn_flow_off:
-                num_time_syncs_flow = int(math.ceil(flow_input['flow_time'] / max_sync_time))
                 max_sync_time_afterflow = 250*self.input_data['tau_K']
                 num_time_syncs_afterflow = int(math.ceil((self.input_data['sim_time']-flow_input['flow_time'])/max_sync_time_afterflow))
         
@@ -430,7 +429,8 @@ class FSM_LINEAR(object):
         #calculate number of time syncs based on max_sync_time for flow
         if self.turn_flow_off:
             num_time_syncs = num_time_syncs_flow + num_time_syncs_afterflow
-            
+        else:
+            num_time_syncs = num_time_syncs_flow
 
         if self.correlator == 'munch' and not self.flow:
             count = 0

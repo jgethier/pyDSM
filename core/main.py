@@ -427,9 +427,9 @@ class FSM_LINEAR(object):
         d_flow_off = cuda.to_device([self.turn_flow_off])
 
         #calculate number of time syncs based on max_sync_time for flow
-        if self.turn_flow_off:
+        if self.flow and self.turn_flow_off:
             num_time_syncs = num_time_syncs_flow + num_time_syncs_afterflow
-        else:
+        elif self.flow and not self.turn_flow_off:
             num_time_syncs = num_time_syncs_flow
 
         if self.correlator == 'munch' and not self.flow:

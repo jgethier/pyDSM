@@ -1,12 +1,12 @@
 import numpy as np
 import math
-import random as rng
+import core.random_gen as rng
 from core.polydispersity import froot
 from scipy.optimize import root_scalar
 
 class ensemble_chains(object):
 
-    def __init__(self, config):
+    def __init__(self, config, seed):
         
         self.beta = config['beta']
         self.CD_flag = config['CD_flag']
@@ -22,7 +22,9 @@ class ensemble_chains(object):
             self.mean_ = np.log(Mn**(3/2)/np.sqrt(Mw))
             self.sigma_ = np.sqrt(2*np.log(np.sqrt(Mw)/np.sqrt(Mn)))
             self.Mmax = root_scalar(froot, args=(Mn,Mw), bracket=[50000,1000000], method='bisect').root
-            
+        
+        rng.initialize_generator(seed)
+
         return
 
     
@@ -35,7 +37,7 @@ class ensemble_chains(object):
         Returns:
             Z - number of entangled strands in the chain
         '''
-        p = rng.uniform(0.0,1.0)
+        p = rng.genrand_real3()
         y = p/(1+self.beta)*math.pow(1+(1/self.beta),tNk)
         z = 1
         sum1 = 0.0
@@ -92,10 +94,10 @@ class ensemble_chains(object):
         else:
             A = tNk-1
             for i in range(ztmp,1,-1):
-                p = rng.uniform(0.0,1.0)
+                p = rng.genrand_real3()
                 Ntmp = 0
                 sumres = 0.0
-                while (p>=sumres) and (Ntmp != (A-i+2)):
+                while (p>=sumres) and (Ntmp+1 != (A-i+2)):
                     Ntmp+=1
                     sumres += self.ratio(A, Ntmp, i)
                 tN[i-1] = Ntmp
@@ -121,24 +123,24 @@ class ensemble_chains(object):
         Qz = [0.0]*tz
 
         if tz>2: #dangling ends not part of distribution
-            rng.use_last=False
             for j in range(1,tz-1):
-                Qx[j] = rng.normalvariate(0.0,1.0)*np.sqrt(float(Ntmp[j])/3.0)
-                Qy[j] = rng.normalvariate(0.0,1.0)*np.sqrt(float(Ntmp[j])/3.0)
-                Qz[j] = rng.normalvariate(0.0,1.0)*np.sqrt(float(Ntmp[j])/3.0)
+                Qx[j] = rng.gauss_distr()*np.sqrt(float(Ntmp[j])/3.0)
+                Qy[j] = rng.gauss_distr()*np.sqrt(float(Ntmp[j])/3.0)
+                Qz[j] = rng.gauss_distr()*np.sqrt(float(Ntmp[j])/3.0)
 
         return Qx,Qy,Qz
 
 
     def tau_CD_dist(self,chainIdx,tz,pcd=None):
 
+        rng.use_last = False
         for k in range(0,tz-1):
             if self.CD_flag !=0:
                 if self.PD_input['flag']:
-                    Mlognorm = (np.exp(rng.normalvariate(0.0,1.0)*self.sigma_ + self.mean_))
+                    Mlognorm = (np.exp(rng.gauss_distr()*self.sigma_ + self.mean_))
                     NK_PD = Mlognorm/self.MK
                     while (Mlognorm > self.Mmax) or (NK_PD < 1):
-                        Mlognorm = (np.exp(rng.normalvariate(0.0,1.0)*self.sigma_ + self.mean_))
+                        Mlognorm = (np.exp(rng.gauss_distr()*self.sigma_ + self.mean_))
                         NK_PD = Mlognorm/self.MK
                     pcd.__init__(NK_PD,self.beta)
                     self.tau_CD[chainIdx,k] = pcd.tau_CD_f_t() 

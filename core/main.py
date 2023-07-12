@@ -182,7 +182,7 @@ class FSM_LINEAR(object):
             
         #generate initial chain conformations on host CPU
         print('Generating initial chain conformations on host...',end="",flush=True)
-        chain = ensemble_chains(self.input_data)
+        chain = ensemble_chains(self.input_data,self.seed)
         
         #initialize chains
         for m in range(0,self.input_data['Nchains']):

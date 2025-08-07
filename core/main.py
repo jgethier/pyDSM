@@ -201,7 +201,7 @@ class FSM_LINEAR(object):
                 pcd.__init__(m/chain.MK,self.input_data['beta'])
                 pref_M = pcd.W_CD_destroy_aver()
                 integrate_data.append(f_WM*pref_M)
-            d_CD_create_prefact = cuda.to_device([scipy.integrate.simps(integrate_data,Mdata)/self.input_data['beta']])
+            d_CD_create_prefact = cuda.to_device([scipy.integrate.simpson(integrate_data,Mdata)/self.input_data['beta']])
         else:
             d_pdi_array = cuda.to_device([False])
 

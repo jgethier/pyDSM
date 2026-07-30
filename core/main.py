@@ -347,6 +347,7 @@ class FSM_LINEAR(object):
         
         else: #if not flow, set chain sync times based on data array length and initialize result array
             max_sync_time = self.input_data['sim_time']
+            num_time_syncs_flow = 0
             if self.correlator=='rsvl':
                 S_corr = math.ceil(np.log(dataLength/p)/np.log(m)) + 1 #number of correlator levels
                 num_time_syncs = 1
